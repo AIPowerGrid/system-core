@@ -4,10 +4,10 @@
 
 This is a very big subject which will be later be expanded in a devlog. But putting it simply:
 
-* As a requestor, you send a prompt to the horde which adds it into a smart "first in/first out" queue, prioritizing it according to the amount of Kudos you have. If the request has multiple generations required, it is split into multiple jobs by the horde.
-* Any joined workers periodically check-in to the horde and request a job to do. The horde sends them the first available request they can fulfil, by order of kudos-priority, respecting the worker's wishes for specific workers who have priority.
-* The worker generates the job's prompt and submits it back to the horde
-* Once all the component jobs of a request have been submitted, the horde marks the request as "Done"
+* As a requestor, you send a prompt to the grid which adds it into a smart "first in/first out" queue, prioritizing it according to the amount of Kudos you have. If the request has multiple generations required, it is split into multiple jobs by the grid.
+* Any joined workers periodically check-in to the grid and request a job to do. The grid sends them the first available request they can fulfil, by order of kudos-priority, respecting the worker's wishes for specific workers who have priority.
+* The worker generates the job's prompt and submits it back to the grid
+* Once all the component jobs of a request have been submitted, the grid marks the request as "Done"
 * The requestor can at any point check the status of their waiting requests and retrieve the results, even if they're not "done"
 
 ## Workers?
@@ -16,13 +16,13 @@ This is a very big subject which will be later be expanded in a devlog. But putt
 
 ### What is a worker?
 
-A worker is computer with usually a mid-range or higher class GPU, who has installed specific software to generate images via Stable Diffusion or KoboldAI locally and it connected to the horde through what we call the "bridge". It is constantly polling the horde for new generations and receiving Kudos in return for creating them.
+A worker is computer with usually a mid-range or higher class GPU, who has installed specific software to generate images via Stable Diffusion or KoboldAI locally and it connected to the grid through what we call the "bridge". It is constantly polling the grid for new generations and receiving Kudos in return for creating them.
 
 ### What is in it for the worker?
 
 Generating images for others 24/7 technically costs electricity, we know.
 
-People want to contribute to the horde for many reasons
+People want to contribute to the grid for many reasons
 
 * They want to provide constant processing power for tools they've built on top of Stable Diffusion or KoboldAI, such as video games, chat bots or software plugins
 * They want to accumulate Kudos so that when it's time to generate their own requests they can get them done faster.
@@ -35,7 +35,7 @@ People want to contribute to the horde for many reasons
 
 However workers do not have any identifying information about individual requestors as they cannot see their ID or IP.
 
-Nevertheless always request generations as if you're posting in a public forum like using a discord bot. While the horde is technically more private than that, it's a good practice anyway.
+Nevertheless always request generations as if you're posting in a public forum like using a discord bot. While the grid is technically more private than that, it's a good practice anyway.
 
 ### Can I turn off my worker whenever I want?
 
@@ -55,21 +55,21 @@ Yes! By default, your own requests are always served first by your own worker, r
 
 ### What, what is Kudos?
 
-Another big subject. This one actually [has a devlog about it](https://dbzer0.com/blog/the-kudos-based-economy-for-the-koboldai-horde/)
+Another big subject. This one actually [has a devlog about it](https://dbzer0.com/blog/the-kudos-based-economy-for-the-koboldai-grid/)
 
 ### How do I get Kudos?
 
-Connect a worker to the horde, that is all! You will generate kudos for each request you fulfil, relevant to its difficulty, and you will also generate kudos every 10 minutes your worker stays online.
+Connect a worker to the grid, that is all! You will generate kudos for each request you fulfil, relevant to its difficulty, and you will also generate kudos every 10 minutes your worker stays online.
 
 ### How is image Kudos consumption calculated?
 
 The Kudos cost reflects the amount of processing required to generate the image.
 
-As each payload on the horde can have too many variables which affect its speed, we have trained a neural network which takes as input a request payload, and calculates how much kudos it would require, based on how much faster or slower it would generate compared to a baseline of 10 kudos for a 50 step 512x512 image. The baseline costs 10 kudos. So  if a payload is expected to take double that time, it will be valued as 20 kudos.
+As each payload on the grid can have too many variables which affect its speed, we have trained a neural network which takes as input a request payload, and calculates how much kudos it would require, based on how much faster or slower it would generate compared to a baseline of 10 kudos for a 50 step 512x512 image. The baseline costs 10 kudos. So  if a payload is expected to take double that time, it will be valued as 20 kudos.
 
-The AI Horde API provides a `dry_run` payload key. When set to true, it will return the kudos cost for an image, without actually requesting a generation.
+The AI grid API provides a `dry_run` payload key. When set to true, it will return the kudos cost for an image, without actually requesting a generation.
 
-On top of that there is what's known as the "horde tax" which represents the extra costs to the infrastructure for each request. These kudos are not received by the worker but are rather "burnt" forever.
+On top of that there is what's known as the "grid tax" which represents the extra costs to the infrastructure for each request. These kudos are not received by the worker but are rather "burnt" forever.
 
 * There is a 1 kudos tax per request. This is applied even if the request it cancelled, faulted or aborted.
 * There is a 1 kudos tax per job in a request. 
@@ -83,7 +83,7 @@ We use Kudos to support good behaviour in the community. As such we have ways to
 * If you have at least 2GB VRAM, you can run an alchemist, which is used to interrogate or post-process images.
 * Rate some images. Almost all clients should have a way to rate images while waiting which will provide kudos per rating, and you can also rate the images you just generated for a kudos refund! [Artbot has a very easy rating page](https://tinybots.net/artbot/rate)
 * Fulfill a bounty from our discord bounties forum
-* Subscribe to [the patreon supporting the development of the AI Horde](https://www.patreon.com/db0).
+* Subscribe to [the patreon supporting the development of the AI grid](https://www.patreon.com/db0).
 * Generate and share some cool art in our discord.
 * Politely request some people to transfer some to you in our discord server. People tend to give plenty to new users and helpful or funny comments.
 
@@ -91,15 +91,15 @@ We use Kudos to support good behaviour in the community. As such we have ways to
 
 **Yes!** Check the `api/v2/transfer` endpoint.
 
-Remember however that the Kudos is merely a prioritization mechanism, **not a currency**. The AI Horde are under no obligation to maintain Kudos totals or current rate of return, and we may tweak them to ensure more optimal operation of the system. 
+Remember however that the Kudos is merely a prioritization mechanism, **not a currency**. The AI grid are under no obligation to maintain Kudos totals or current rate of return, and we may tweak them to ensure more optimal operation of the system. 
 
 ### Can I sell my kudos? 
 
-**NO!** Kudos is inherently valueless and we do not allow anyone exchanging kudos for money. Bypassing this requirement is an existential threat to the AI Horde. Please do not attempt to do this under the table. **If you exchange money for Kudos and we discover it, we might zero out your account and whoever you bought it from!**
+**NO!** Kudos is inherently valueless and we do not allow anyone exchanging kudos for money. Bypassing this requirement is an existential threat to the AI grid. Please do not attempt to do this under the table. **If you exchange money for Kudos and we discover it, we might zero out your account and whoever you bought it from!**
 
 ### Is Kudos a cryptocurrency?
 
-**No!** Kudos is completely centralized and involved no blockchain tech whatsoever. The AI Horde is explicitly hostile to blockchain technologies and we will never integrate with any of them. Likewise, there is no way to convert kudos to anything other than favours benefiting the improvement of the AI Horde.
+**No!** Kudos is completely centralized and involved no blockchain tech whatsoever. The AI grid is explicitly hostile to blockchain technologies and we will never integrate with any of them. Likewise, there is no way to convert kudos to anything other than favours benefiting the improvement of the AI grid.
 
 ### Can I exchange kudos for cryptocurrencies?
 
@@ -115,9 +115,9 @@ Yes, but you might have a smaller a pool of workers to fulfil your request, whic
 
 ### Do you censor generations?
 
-Horde-wide, we censor only one type of generation: [CSAM](https://en.wikipedia.org/wiki/Child_sexual_abuse_material) Images. We have two mechanisms to achieve this, one is a regex replacement filter during initial API request. The other is the anti-CSAM AI running on each worker. See more detailed answers below.
+grid-wide, we censor only one type of generation: [CSAM](https://en.wikipedia.org/wiki/Child_sexual_abuse_material) Images. We have two mechanisms to achieve this, one is a regex replacement filter during initial API request. The other is the anti-CSAM AI running on each worker. See more detailed answers below.
 
-Other than this one instance, the horde does not censor text generations at all, or images which do not appear to be CSAM.
+Other than this one instance, the grid does not censor text generations at all, or images which do not appear to be CSAM.
 
 However each individual worker might have its own censorship guidelines. And each requestor can voluntarily opt-in to accidental NSFW censorship.
 
@@ -135,7 +135,7 @@ If you feel a worker is using the censorlist maliciously, or improperly, please 
 
 ## Can you explain how the Anti-CSAM regex filter works?
 
-When an image request first comes into the AI Horde, it is passed through a private regex filter looking for combination of two contexts: "Underage" context and "Lewd" Context. An example of an underage context might be "child" and an example of a lewd context might be "without clothes".
+When an image request first comes into the AI grid, it is passed through a private regex filter looking for combination of two contexts: "Underage" context and "Lewd" Context. An example of an underage context might be "child" and an example of a lewd context might be "without clothes".
 
 If none, or one of these contexts is detected in a prompt, then the prompt is allowed to pass through unaffected. For example "child in the playground" is ok. "Without clothes in the bathroom" is also OK.
 
@@ -154,55 +154,55 @@ We have written [a detailed devlog about this](https://dbzer0.com/blog/ai-powere
 * [The NSFW Question](https://www.patreon.com/posts/nsfw-question-72771484)
 * [Blacklists](https://www.patreon.com/posts/72890784)
 
-## Horde?
+## grid?
 
-![](img_faq/horde.png)
+![](img_faq/grid.png)
 
-### Why "AI Horde"?
+### Why "AI grid"?
 
-This project started as a way to consolidate resources for the KoboldAI Client. As we needed a name for it, I came up with something thematic for the concept of "Kobolds". "A Horde of Kobolds". When I started doing image generation as well, I kept the "Horde" part.
+This project started as a way to consolidate resources for the KoboldAI Client. As we needed a name for it, I came up with something thematic for the concept of "Kobolds". "A grid of Kobolds". When I started doing image generation as well, I kept the "grid" part.
 
-### Can you explain the terminology around the AI Horde?
+### Can you explain the terminology around the AI grid?
 
-We have [a dedicated wiki page](https://github.com/Haidra-Org/AI-Horde/wiki/Terminology) where you can look a lot of the cross-referenced terms commonly mentioned in the context of the AI Horde
+We have [a dedicated wiki page](https://github.com/Haidra-Org/AI-grid/wiki/Terminology) where you can look a lot of the cross-referenced terms commonly mentioned in the context of the AI grid
 
-### Does the horde spy on my prompts and generations?
+### Does the grid spy on my prompts and generations?
 
-No, the horde itself is not storing such details. The prompts and the generations are only stored in-memory transiently and deleted shortly after the generation is delivered or cancelled.
+No, the grid itself is not storing such details. The prompts and the generations are only stored in-memory transiently and deleted shortly after the generation is delivered or cancelled.
 
-### Why should I use the Horde and not my local PC?
+### Why should I use the grid and not my local PC?
 
-Not everyone has a power GPU in their PC. The horde allows anyone to use fast Stable Diffusion and KoboldAI, not only the ones privileged enough to be able to afford an expensive graphics card. 
+Not everyone has a power GPU in their PC. The grid allows anyone to use fast Stable Diffusion and KoboldAI, not only the ones privileged enough to be able to afford an expensive graphics card. 
 
-Furthermore, local clients, even at the best of times, are difficult to setup up and often error prone due to python dependencies. They also need plenty of internet bandwidth to download 4GB of models. The stable horde provides no-install clients, as well as browser clients you can use even on your phone!
+Furthermore, local clients, even at the best of times, are difficult to setup up and often error prone due to python dependencies. They also need plenty of internet bandwidth to download 4GB of models. The stable grid provides no-install clients, as well as browser clients you can use even on your phone!
 
 Finally if you wanted to provide a service built on image or text generation, you can now use your own PC to power your image generations, and therefore avoid all the complexity and capital costs required with setting up a server infrastructure. 
 
-### Why should I use the Horde and not a service like Stability.ai?
+### Why should I use the grid and not a service like Stability.ai?
 
-Because the Horde is free! You will never need to pay to use the horde. Sure if the demand is high, your delivery speed might not be great, but that is true with other services like midjourney
+Because the grid is free! You will never need to pay to use the grid. Sure if the demand is high, your delivery speed might not be great, but that is true with other services like midjourney
 
-Second, the Horde gives you all the benefits of a local installation, such as freedom in prompts, while still allowing a browser interface. and flexibility.
+Second, the grid gives you all the benefits of a local installation, such as freedom in prompts, while still allowing a browser interface. and flexibility.
 
-Finally unlike many of these services, Horde also provides a fully fledged REST API you can use to integrate your applications, without worrying about costs.
+Finally unlike many of these services, grid also provides a fully fledged REST API you can use to integrate your applications, without worrying about costs.
 
-### Why should I use the Horde and not a free service?
+### Why should I use the grid and not a free service?
 
 Because when the service is free, you're the product!
 
-Other services which run on centralized servers have costs. Someone has to pay for the electricity, and the server infrastructure. The horde is explicit of how these costs are crowdsourced and there's no need for us to ever add anything in the future to change our existing model. Other free services tend to be deliberately obscure in how they use your prompts, results, and data, or explicitly say that your data is going to be the product. Such services eventually pivot their usercount to make money through advertisements and data brokering.
+Other services which run on centralized servers have costs. Someone has to pay for the electricity, and the server infrastructure. The grid is explicit of how these costs are crowdsourced and there's no need for us to ever add anything in the future to change our existing model. Other free services tend to be deliberately obscure in how they use your prompts, results, and data, or explicitly say that your data is going to be the product. Such services eventually pivot their usercount to make money through advertisements and data brokering.
 
 If you're fine with that, go ahead and use them.
 
 Finally a lot of these services do not provide free REST APIs, so if you need to integrate with them, you have to use a browser interface, so that you can see the adverts.
 
 
-### Can I run my own private horde?
+### Can I run my own private grid?
 
 Of course! This software is FOSS and you are welcome to use, modify and share, so long as you respect the AGPL3 license.
 
-If you set up your own horde of course, you will need to also maintain your own workers, as hordes do not share workers with each other.
+If you set up your own grid of course, you will need to also maintain your own workers, as grids do not share workers with each other.
 
-### Can I built paid services integration into the AI Horde?
+### Can I built paid services integration into the AI grid?
 
-Yes, with some restrictions. Due to the voluntary nature of the AI Horde, you **must** give back to the AI horde at least as much as you take out to make a profit. Please see the detailed explanation [in this devlog](https://dbzer0.com/blog/what-about-paid-services-on-top-of-the-ai-horde/)
+Yes, with some restrictions. Due to the voluntary nature of the AI grid, you **must** give back to the AI grid at least as much as you take out to make a profit. Please see the detailed explanation [in this devlog](https://dbzer0.com/blog/what-about-paid-services-on-top-of-the-ai-grid/)
