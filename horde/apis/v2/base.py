@@ -538,15 +538,16 @@ class JobPopTemplate(Resource):
             if settings.mode_invite_only() and worker_count >= self.user.worker_invited:
                 raise e.WorkerInviteOnly(worker_count)
             # Untrusted users can only have 3 workers
-            if not self.user.trusted and worker_count > 3:
-                raise e.Forbidden("To avoid abuse, untrusted users can only have up to 3 distinct workers.")
+            if not self.user.trusted and worker_count > 10:
+                raise e.Forbidden("To avoid abuse, untrusted users can only have up to 10 distinct workers.")
             # Trusted users can have up to 20 workers by default unless overriden
             if worker_count > 20 and worker_count > self.user.worker_invited:
                 raise e.Forbidden(
                     "To avoid abuse, tou cannot onboard more than 20 workers as a trusted user. Please contact us on Discord to adjust.",
                 )
             if self.user.exceeding_ipaddr_restrictions(self.worker_ip):
-                raise e.TooManySameIPs(self.user.username)
+                #raise e.TooManySameIPs(self.user.username)
+                pass
             self.worker = self.worker_class(
                 user_id=self.user.id,
                 name=self.worker_name,
