@@ -1,6 +1,36 @@
 [
     {
-        "date_published": "2024-05-20",
+        "date_published": "2024-09-30",
+        "newspiece": "[Flux.1-Schnell](https://blackforestlabs.ai/) is now available on the AI Horde! Remember to adjust your steps and cfg when using it!",
+        "tags": [
+            "nlnet",
+            "tazlin",
+            "db0",
+            "text2img",
+            "flux"
+        ],
+        "importance": "Information",
+        "more_info_urls": [
+            "https://blackforestlabs.ai/"
+        ],
+        "title": "Flux.1-Schnell now available on the AI Horde."
+    },
+    {
+        "date_published": "2024-08-07",
+        "newspiece": "ArtBot is now an official component of Haidra! You can check the official version at [https://artbot.site](https://artbot.site which is running the latest version of it with a ton of improvements. All kudos to [Rockbandit](https://mastodon.world/@davely)",
+        "tags": [
+            "nlnet",
+            "rockbandit"
+        ],
+        "importance": "Information",
+        "more_info_urls": [
+            "https://artbot.site",
+            "https://mastodon.world/@davely"
+        ],
+        "title": "Official Artbot"
+    },
+    {
+        "date_published": "2024-07-15",
         "newspiece": "You can now use the [SD Layer Diffuse tech](https://github.com/layerdiffusion/sd-forge-layerdiffuse) to generate transparent images directly with the AI horde (without the use of a post-processor). To use this functionality, simply pass `transparent: true` in your payloads params. This feature is not supported on Img2Img however.",
         "tags": [
             "db0",
@@ -8,8 +38,11 @@
             "text2img"
         ],
         "importance": "Information",
-        "more_info_urls": [],
-        "title": "Generate QR Codes"
+        "more_info_urls": [
+            "https://dbzer0.com/blog/transparent-generations/",
+            "https://github.com/layerdiffusion/sd-forge-layerdiffuse"
+        ],
+        "title": "Images with Transparency"
     },
     {
         "date_published": "2024-05-20",
@@ -20,7 +53,9 @@
             "text2img"
         ],
         "importance": "Information",
-        "more_info_urls": [],
+        "more_info_urls": [
+            "https://dbzer0.com/blog/embedded-qr-codes-via-the-ai-horde/"
+        ],
         "title": "Generate QR Codes"
     },
     {

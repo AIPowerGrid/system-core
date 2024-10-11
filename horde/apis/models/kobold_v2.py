@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 from flask_restx import fields
 
 from horde.apis.models import v2
@@ -238,7 +242,7 @@ class TextModels(v2.Models):
             },
         )
         self.response_model_job_pop = api.model(
-            "GenerationPayload",
+            "GenerationPayloadKobold",
             {
                 "payload": fields.Nested(self.response_model_generation_payload, skip_none=True),
                 "id": fields.String(description="The UUID for this text generation."),
@@ -248,6 +252,7 @@ class TextModels(v2.Models):
                         example="00000000-0000-0000-0000-000000000000",
                     ),
                 ),
+                "ttl": fields.Integer(description="The amount of seconds before this job is considered stale and aborted."),
                 "extra_source_images": fields.List(fields.Nested(self.model_extra_source_images)),
                 "skipped": fields.Nested(self.response_model_generations_skipped, skip_none=True),
                 "softprompt": fields.String(description="The soft prompt requested for this generation."),
@@ -288,6 +293,14 @@ class TextModels(v2.Models):
                     description=(
                         "When true, only trusted workers will serve this request. "
                         "When False, Evaluating workers will also be used which can increase speed but adds more risk!"
+                    ),
+                ),
+                "validated_backends": fields.Boolean(
+                    default=True,
+                    description=(
+                        f"When true, only inference backends that are validated by the {horde_title} devs will serve this request. "
+                        "When False, non-validated backends will also be used which can increase speed but "
+                        "you may end up with unexpected results."
                     ),
                 ),
                 "slow_workers": fields.Boolean(
@@ -334,6 +347,12 @@ class TextModels(v2.Models):
                     description=(
                         f"Provide a URL where the {horde_title} will send a POST call after each delivered generation. "
                         "The request will include the details of the job as well as the request ID."
+                    ),
+                ),
+                "extra_slow_workers": fields.Boolean(
+                    default=False,
+                    description=(
+                        "When True, allows very slower workers to pick up this request. " "Use this when you don't mind waiting a lot."
                     ),
                 ),
             },

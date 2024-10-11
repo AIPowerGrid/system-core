@@ -1,7 +1,14 @@
+# SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 import math
 import os
 
 from horde import vars as hv
+from horde.bridge_reference import (
+    is_backed_validated,
+)
 from horde.classes.base.processing_generation import ProcessingGeneration
 from horde.classes.kobold.genstats import record_text_statistic
 from horde.flask import db
@@ -52,7 +59,10 @@ class TextProcessingGeneration(ProcessingGeneration):
         # This is the approximate reward for generating with a 2.7 model at 4bit
         model_multiplier = model_reference.get_text_model_multiplier(self.model)
         parameter_bonus = (max(model_multiplier, 13) / 13) ** 0.20
-        kudos = self.get_things_count() * parameter_bonus * model_multiplier / 100
+        kudos = self.get_things_count() * parameter_bonus * model_multiplier / 125
+        # Unvalidated backends have their rewards cut to 30%
+        if not is_backed_validated(self.worker.bridge_agent):
+            kudos *= 0.3
         return round(kudos * context_multiplier, 2)
 
     def log_aborted_generation(self):
@@ -112,5 +122,8 @@ class TextProcessingGeneration(ProcessingGeneration):
             if param_multiplier >= params_count:
                 unreasonable_speed = max_speed_per_multiplier[params_count]
                 break
+        # This handles the 8x7 and 8x22 models which are generally faster than their size implies.
+        if "8x" in self.model:
+            unreasonable_speed = unreasonable_speed * 3
         if things_per_sec > unreasonable_speed:
-            self.worker.report_suspicion(reason=Suspicions.UNREASONABLY_FAST, formats=[things_per_sec])
+            self.worker.report_suspicion(reason=Suspicions.UNREASONABLY_FAST, formats=[f"{things_per_sec} > {unreasonable_speed}"])

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 import horde.apis.v2.base as base
 import horde.apis.v2.kobold as kobold
 import horde.apis.v2.stable as stable
@@ -20,6 +24,7 @@ api.add_resource(base.SharedKey, "/sharedkeys")
 api.add_resource(base.SharedKeySingle, "/sharedkeys/<string:sharedkey_id>")
 api.add_resource(base.Workers, "/workers")
 api.add_resource(base.WorkerSingle, "/workers/<string:worker_id>")
+api.add_resource(base.WorkerSingleName, "/workers/name/<string:worker_name>")
 api.add_resource(base.TransferKudos, "/kudos/transfer")
 api.add_resource(base.AwardKudos, "/kudos/award")
 api.add_resource(base.HordeModes, "/status/modes")

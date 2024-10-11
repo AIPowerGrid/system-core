@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 from flask_restx import fields, reqparse
 
 from horde.enums import WarningMessage
@@ -54,6 +58,16 @@ class Parsers:
             location="json",
         )
         self.generate_parser.add_argument(
+            "validated_backends",
+            type=bool,
+            required=False,
+            default=False,
+            help=f"When true, only inference backends that are validated by the {horde_title} devs will serve this request. "
+            "When False, non-validated backends will also be used which can increase speed but "
+            "you may end up with unexpected results.",
+            location="json",
+        )
+        self.generate_parser.add_argument(
             "workers",
             type=list,
             required=False,
@@ -85,6 +99,14 @@ class Parsers:
             default=True,
             required=False,
             help="When True, allows slower workers to pick up this request. Disabling this incurs an extra kudos cost.",
+            location="json",
+        )
+        self.generate_parser.add_argument(
+            "extra_slow_workers",
+            type=bool,
+            default=False,
+            required=False,
+            help="When True, allows very slower workers to pick up this request. Use this when you don't mind waiting a lot.",
             location="json",
         )
         self.generate_parser.add_argument(
@@ -188,6 +210,13 @@ class Parsers:
             required=False,
             default=1,
             help="How many jobvs to pop at the same time",
+            location="json",
+        )
+        self.job_pop_parser.add_argument(
+            "extra_slow_worker",
+            type=bool,
+            default=False,
+            required=False,
             location="json",
         )
 
@@ -409,6 +438,7 @@ class Models:
             {
                 "payload": fields.Nested(self.response_model_generation_payload, skip_none=True),
                 "id": fields.String(description="The UUID for this generation."),
+                "ttl": fields.Integer(description="The amount of seconds before this job is considered stale and aborted."),
                 "skipped": fields.Nested(self.response_model_generations_skipped, skip_none=True),
             },
         )
@@ -522,6 +552,13 @@ class Models:
                     description="How many jobvs to pop at the same time",
                     min=1,
                     max=20,
+                ),
+                "extra_slow_worker": fields.Boolean(
+                    default=True,
+                    description=(
+                        "If True, marks the worker as very slow. You should only use this if your mps/s is lower than 0.1."
+                        "Extra slow workers are excluded from normal requests but users can opt in to use them."
+                    ),
                 ),
             },
         )

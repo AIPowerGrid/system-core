@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 from datetime import datetime
 
 import requests
@@ -168,6 +172,11 @@ class ImageAsyncGenerate(GenerateTemplate):
         if any(model_reference.get_model_baseline(model_name).startswith("stable_cascade") for model_name in self.args.models):
             if "control_type" in self.params:
                 raise e.BadRequest("ControlNet does not work with Stable Cascade currently.", rc="ControlNetMismatch")
+        if any(model_reference.get_model_baseline(model_name).startswith("flux_1") for model_name in self.args.models):
+            if "control_type" in self.params:
+                raise e.BadRequest("ControlNet does not work with Flux currently.", rc="ControlNetMismatch")
+            if self.params.get("hires_fix", False) is True:
+                raise e.BadRequest("HiRes Fix does not work with Flux currently.", rc="HiResMismatch")
         if "loras" in self.params:
             if len(self.params["loras"]) > 5:
                 raise e.BadRequest("You cannot request more than 5 loras per generation.", rc="TooManyLoras")
@@ -288,8 +297,10 @@ class ImageAsyncGenerate(GenerateTemplate):
             nsfw=self.args.nsfw,
             censor_nsfw=self.args.censor_nsfw,
             trusted_workers=self.args.trusted_workers,
+            validated_backends=self.args.validated_backends,
             worker_blacklist=self.args.worker_blacklist,
             slow_workers=self.args.slow_workers,
+            extra_slow_workers=self.args.extra_slow_workers,
             source_processing=self.args.source_processing,
             ipaddr=self.user_ip,
             safe_ip=self.safe_ip,
@@ -425,7 +436,6 @@ class ImageAsyncStatus(Resource):
 
     decorators = [limiter.limit("10/minute", key_func=lim.get_request_path)]
 
-    # If I marshal it here, it overrides the marshalling of the child class unfortunately
     @api.expect(get_parser)
     @api.marshal_with(
         models.response_model_wp_status_full,
@@ -589,6 +599,10 @@ class ImageJobPop(JobPopTemplate):
                 db_skipped["kudos"] = post_ret["skipped"]["kudos"]
             if "blacklist" in post_ret.get("skipped", {}):
                 db_skipped["blacklist"] = post_ret["skipped"]["blacklist"]
+            if "step_count" in post_ret.get("skipped", {}):
+                db_skipped["step_count"] = post_ret["skipped"]["step_count"]
+            if "bridge_version" in post_ret.get("skipped", {}):
+                db_skipped["bridge_version"] = db_skipped.get("bridge_version", 0) + post_ret["skipped"]["bridge_version"]
             post_ret["skipped"] = db_skipped
         # logger.debug(post_ret)
         return post_ret, retcode
@@ -611,6 +625,8 @@ class ImageJobPop(JobPopTemplate):
             allow_controlnet=self.args.allow_controlnet,
             allow_sdxl_controlnet=self.args.allow_sdxl_controlnet,
             allow_lora=self.args.allow_lora,
+            extra_slow_worker=self.args.extra_slow_worker,
+            limit_max_steps=self.args.limit_max_steps,
             priority_usernames=self.priority_usernames,
         )
 

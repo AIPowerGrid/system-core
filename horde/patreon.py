@@ -1,6 +1,10 @@
+# SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 import json
 
-from horde import horde_redis as hr
+from horde.horde_redis import horde_redis as hr
 from horde.logger import logger
 from horde.threads import PrimaryTimedFunction
 

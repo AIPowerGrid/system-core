@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 import os
 import uuid
 from datetime import datetime, timedelta
@@ -8,12 +12,12 @@ from sqlalchemy import Enum, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 
-from horde import horde_redis as hr
 from horde import vars as hv
 from horde.countermeasures import CounterMeasures
 from horde.discord import send_problem_user_notification
 from horde.enums import UserRecordTypes, UserRoleTypes
 from horde.flask import SQLITE_MODE, db
+from horde.horde_redis import horde_redis as hr
 from horde.logger import logger
 from horde.patreon import patrons
 from horde.suspicions import SUSPICION_LOGS, Suspicions
@@ -641,7 +645,10 @@ class User(db.Model):
         db.session.commit()
 
     def receive_monthly_kudos(self, force=False, prevent_date_change=False):
-        logger.info(f"Checking {self.get_unique_alias()} for monthly kudos...")
+        logger.info(
+            f"Checking {self.get_unique_alias()} for monthly kudos. "
+            f"They currently have {self.kudos} kudos last received at {self.monthly_kudos_last_received}",
+        )
         kudos_amount = self.calculate_monthly_kudos()
         if kudos_amount == 0:
             logger.warning(f"receive_monthly_kudos() received 0 kudos account {self.get_unique_alias()}")
@@ -873,6 +880,9 @@ class User(db.Model):
             for wp in self.waiting_prompts:
                 if wp.wp_type not in ret_dict["active_generations"]:
                     ret_dict["active_generations"][wp.wp_type] = []
+                # We don't return anon list of gens
+                if self.is_anon():
+                    break
                 ret_dict["active_generations"][wp.wp_type].append(str(wp.id))
         if details_privilege >= 2:
             mk_dict = {
@@ -896,6 +906,19 @@ class User(db.Model):
             new_kd = UserStats(user_id=self.id, action=key, value=kudos_details[key])
             db.session.add(new_kd)
         db.session.commit()
+
+    def refresh_cache(self):
+        try:
+            privileges = [0, 1, 2]  # public, self-view, moderator
+            for privilege in privileges:
+                cache_name = f"cached_user_id_{self.id}_privilege_{privilege}"
+                hr.horde_r_delete(cache_name)
+
+            api_cache_name = f"cached_apikey_user_{self.api_key}"
+            hr.horde_r_delete(api_cache_name)
+
+        except Exception:
+            return None
 
     def record_problem_job(self, procgen, ipaddr, worker, prompt):
         # We do not report the admin as they do dev work often.
