@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 import json
 import os
 import time
@@ -14,13 +18,12 @@ from sqlalchemy.exc import IntegrityError, InvalidRequestError
 import horde.apis.limiter_api as lim
 import horde.classes.base.stats as stats
 from horde import exceptions as e
-from horde import horde_redis as hr
 from horde.apis.models.v2 import Models, Parsers
 from horde.argparser import args
 from horde.classes.base import settings
 from horde.classes.base.detection import Filter
 from horde.classes.base.news import News
-from horde.classes.base.team import Team, get_all_teams
+from horde.classes.base.team import Team, find_team_by_id, get_all_teams
 from horde.classes.base.user import User, UserSharedKey
 from horde.classes.base.waiting_prompt import WaitingPrompt
 from horde.classes.base.worker import Worker
@@ -29,6 +32,7 @@ from horde.countermeasures import CounterMeasures
 from horde.database import functions as database
 from horde.detection import prompt_checker
 from horde.flask import HORDE, cache, db
+from horde.horde_redis import horde_redis as hr
 from horde.image import ensure_source_image_uploaded
 from horde.limiter import limiter
 from horde.logger import logger
@@ -328,6 +332,7 @@ class GenerateTemplate(Resource):
             nsfw=self.args.nsfw,
             censor_nsfw=self.args.censor_nsfw,
             trusted_workers=self.args.trusted_workers,
+            validated_backends=self.args.validated_backends,
             worker_blacklist=self.args.worker_blacklist,
             ipaddr=self.user_ip,
             sharedkey_id=self.args.apikey if self.sharedkey else None,
@@ -451,7 +456,6 @@ class JobPopTemplate(Resource):
                     # as they're typically countermeasures to raids
                     if skipped_reason != "secret":
                         self.skipped[skipped_reason] = self.skipped.get(skipped_reason, 0) + 1
-                    # logger.warning(datetime.utcnow())
 
                     continue
                 # There is a chance that by the time we finished all the checks, another worker picked up the WP.
@@ -472,7 +476,7 @@ class JobPopTemplate(Resource):
         # We report maintenance exception only if we couldn't find any jobs
         if self.worker.maintenance:
             raise e.WorkerMaintenance(self.worker.maintenance_msg)
-        # logger.warning(datetime.utcnow())
+        # logger.debug(self.skipped)
         return {"id": None, "ids": [], "skipped": self.skipped}, 200
 
     def get_sorted_wp(self, priority_user_ids=None):
@@ -765,6 +769,15 @@ class Workers(Resource):
         location="args",
     )
 
+    get_parser.add_argument(
+        "name",
+        required=False,
+        default=None,
+        type=str,
+        help="Find a worker by name (case insensitive).",
+        location="args",
+    )
+
     @api.expect(get_parser)
     @logger.catch(reraise=True)
     # @cache.cached(timeout=10, query_string=True)
@@ -810,12 +823,83 @@ class Workers(Resource):
         return workers_ret
 
     def parse_worker_by_query(self, workers_list):
-        if not self.args.type:
-            return workers_list
-        return [w for w in workers_list if w["type"] == self.args.type]
+        if self.args.name:
+            return [w for w in workers_list if w["name"].lower() == self.args.name.lower()]
+        if self.args.type:
+            return [w for w in workers_list if w["type"] == self.args.type]
+        return workers_list
 
 
-class WorkerSingle(Resource):
+class WorkerSingleBase(Resource):
+
+    def get_worker_by_id(self, worker_id):
+        cache_exists = True
+        details_privilege = 0
+        if self.args.apikey:
+            admin = database.find_user_by_api_key(self.args["apikey"])
+            if admin and admin.moderator:
+                details_privilege = 2
+        if not hr.horde_r:
+            cache_exists = False
+        if details_privilege > 0:
+            cache_name = f"cached_worker_{worker_id}_privileged"
+            cached_worker = hr.horde_r_get(cache_name)
+        else:
+            cache_name = f"cached_worker_{worker_id}"
+        cached_worker = hr.horde_r_get(cache_name)
+        if cache_exists and cached_worker:
+            worker_details = json.loads(cached_worker)
+        else:
+            worker = database.find_worker_by_id(worker_id)
+            if not worker:
+                raise e.WorkerNotFound(worker_id)
+            worker_details = worker.get_details(details_privilege)
+            hr.horde_r_setex_json(cache_name, timedelta(seconds=30), worker_details)
+        return worker_details
+
+
+class WorkerSingleName(WorkerSingleBase):
+    get_parser = reqparse.RequestParser()
+    get_parser.add_argument(
+        "apikey",
+        type=str,
+        required=False,
+        help="The Moderator or Owner API key.",
+        location="headers",
+    )
+    get_parser.add_argument(
+        "Client-Agent",
+        default="unknown:0:unknown",
+        type=str,
+        required=False,
+        help="The client name and version.",
+        location="headers",
+    )
+
+    @api.expect(get_parser)
+    # @cache.cached(timeout=10)
+    @api.marshal_with(
+        models.response_model_worker_details,
+        code=200,
+        description="Worker Details",
+        skip_none=True,
+    )
+    @api.response(401, "Invalid API Key", models.response_model_error)
+    @api.response(403, "Access Denied", models.response_model_error)
+    @api.response(404, "Worker Not Found", models.response_model_error)
+    def get(self, worker_name=""):
+        """Details of a registered worker
+        Can retrieve the details of a worker even if inactive
+        (A worker is considered inactive if it has not checked in for 5 minutes)
+        """
+        self.args = self.get_parser.parse_args()
+        worker = database.find_worker_id_by_name(worker_name)
+        if not worker:
+            raise e.WorkerNotFound(worker_name)
+        return self.get_worker_by_id(str(worker.id)), 200
+
+
+class WorkerSingle(WorkerSingleBase):
     get_parser = reqparse.RequestParser()
     get_parser.add_argument(
         "apikey",
@@ -849,30 +933,8 @@ class WorkerSingle(Resource):
         Can retrieve the details of a worker even if inactive
         (A worker is considered inactive if it has not checked in for 5 minutes)
         """
-        cache_exists = True
-        details_privilege = 0
         self.args = self.get_parser.parse_args()
-        if self.args.apikey:
-            admin = database.find_user_by_api_key(self.args["apikey"])
-            if admin and admin.moderator:
-                details_privilege = 2
-        if not hr.horde_r:
-            cache_exists = False
-        if details_privilege > 0:
-            cache_name = f"cached_worker_{worker_id}_privileged"
-            cached_worker = hr.horde_r_get(cache_name)
-        else:
-            cache_name = f"cached_worker_{worker_id}"
-        cached_worker = hr.horde_r_get(cache_name)
-        if cache_exists and cached_worker:
-            worker_details = json.loads(cached_worker)
-        else:
-            worker = database.find_worker_by_id(worker_id)
-            if not worker:
-                raise e.WorkerNotFound(worker_id)
-            worker_details = worker.get_details(details_privilege)
-            hr.horde_r_setex_json(cache_name, timedelta(seconds=30), worker_details)
-        return worker_details, 200
+        return self.get_worker_by_id(worker_id), 200
 
     put_parser = reqparse.RequestParser()
     put_parser.add_argument(
@@ -1011,7 +1073,7 @@ class WorkerSingle(Resource):
                 worker.set_team(None)
                 ret_dict["team"] = "None"
             else:
-                team = database.find_team_by_id(self.args.team)
+                team = find_team_by_id(self.args.team)
                 if not team:
                     raise e.TeamNotFound(self.args.team)
                 ret = worker.set_team(team)
@@ -1335,7 +1397,7 @@ class UserSingle(Resource):
     @api.response(404, "Worker Not Found", models.response_model_error)
     def put(self, user_id=""):
         """Endpoint for horde admins to perform operations on users"""
-        user = user = database.find_user_by_id(user_id)
+        user = database.find_user_by_id(user_id)
         if not user:
             raise e.UserNotFound(user_id)
         self.args = self.parser.parse_args()
@@ -1470,6 +1532,7 @@ class UserSingle(Resource):
             ret_dict["admin_comment"] = user.admin_comment
         if not len(ret_dict):
             raise e.NoValidActions("No usermod operations selected!", rc="NoUserModSelected")
+        user.refresh_cache()
         return (ret_dict, 200)
 
 
@@ -1941,7 +2004,7 @@ class TeamSingle(Resource):
     @api.response(404, "Team Not Found", models.response_model_error)
     def get(self, team_id=""):
         """Details of a worker Team"""
-        team = database.find_team_by_id(team_id)
+        team = find_team_by_id(team_id)
         if not team:
             raise e.TeamNotFound(team_id)
         details_privilege = 0
@@ -1989,7 +2052,7 @@ class TeamSingle(Resource):
     @api.response(404, "Team Not Found", models.response_model_error)
     def patch(self, team_id=""):
         """Update a Team's information"""
-        team = database.find_team_by_id(team_id)
+        team = find_team_by_id(team_id)
         if not team:
             raise e.TeamNotFound(team_id)
         self.args = self.patch_parser.parse_args()
@@ -2045,7 +2108,7 @@ class TeamSingle(Resource):
         Only the team's creator or a horde moderator can use this endpoint.
         This action is unrecoverable!
         """
-        team = database.find_team_by_id(team_id)
+        team = find_team_by_id(team_id)
         if not team:
             raise e.TeamNotFound(team_id)
         self.args = self.delete_parser.parse_args()
@@ -2739,12 +2802,12 @@ class SharedKey(Resource):
     def put(self):
         """Create a new SharedKey for this user"""
         self.args = self.put_parser.parse_args()
-        user: User = database.find_user_by_api_key(self.args.apikey)
+        user = database.find_user_by_api_key(self.args.apikey)
         if not user:
             raise e.InvalidAPIKey("get sharedkey")
         if user.is_anon():
             raise e.AnonForbidden
-        if user.count_sharedkeys() > user.max_sharedkeys():
+        if user.count_sharedkeys() >= user.max_sharedkeys():
             raise e.Forbidden(f"You cannot have more than {user.max_sharedkeys()} shared keys.")
         expiry = None
         if self.args.expiry and self.args.expiry != -1:
@@ -2761,6 +2824,7 @@ class SharedKey(Resource):
         )
         db.session.add(new_key)
         db.session.commit()
+        user.refresh_cache()
         return new_key.get_details(), 200
 
 
@@ -2930,6 +2994,7 @@ class SharedKeySingle(Resource):
             )
         db.session.delete(sharedkey)
         db.session.commit()
+        user.refresh_cache()
         return {"message": "OK"}, 200
 
 

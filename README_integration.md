@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+
 # Integrating to the AI Horde
 
 This readme will provide information on how you can build software which uses the AI Horde
@@ -41,14 +47,14 @@ Use these endpoints to generate images. Please use the `/check` endpoint for che
 
 ### Text Generation Endpoints
 
-Use these endpoints to generate text. 
+Use these endpoints to generate text.
 
 1. Initiate the request: `api/v2/generate/text/async`
 2. Retrieve the request results: `api/v2/generate/text/status`
 
 ### Image Alchemy
 
-Use these endpoints to interrogate or manipulate images. 
+Use these endpoints to interrogate or manipulate images.
 
 1. Initiate the request: `api/v2/interrogate/async`
 2. Retrieve the request results: `api/v2/interrogate/status`
@@ -59,7 +65,7 @@ Whenever the AI Horde encounters an issue with an operation, it will return the 
 
 ## Webhooks
 
-The AI Horde supports sending back the final generations as soon as they're delivered, using webhooks. 
+The AI Horde supports sending back the final generations as soon as they're delivered, using webhooks.
 
 To use the webhooks for generation, submit the URL to which the POST for the webhook should be delivered in the `webhook` key during submit.
 

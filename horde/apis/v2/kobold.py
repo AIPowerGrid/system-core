@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 from flask import request
 from flask_restx import Resource, reqparse
 
@@ -85,6 +89,7 @@ class TextAsyncGenerate(GenerateTemplate):
             params=self.params,
             softprompt=self.args.softprompt,
             trusted_workers=self.args.trusted_workers,
+            validated_backends=self.args.validated_backends,
             worker_blacklist=self.args.worker_blacklist,
             slow_workers=self.args.slow_workers,
             ipaddr=self.user_ip,
@@ -307,7 +312,6 @@ class TextJobPop(JobPopTemplate):
             priority_user_ids=priority_user_ids,
             page=self.wp_page,
         )
-
         return sorted_wps
 
 

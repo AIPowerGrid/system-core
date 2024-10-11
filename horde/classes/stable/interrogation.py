@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 import json
 from datetime import datetime, timedelta
 
@@ -5,10 +9,10 @@ import requests
 from sqlalchemy import JSON, Enum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-from horde import horde_redis as hr
 from horde.consts import KNOWN_POST_PROCESSORS
 from horde.enums import State
 from horde.flask import SQLITE_MODE, db
+from horde.horde_redis import horde_redis as hr
 from horde.logger import logger
 from horde.r2 import generate_procgen_download_url, generate_procgen_upload_url
 from horde.utils import get_db_uuid, get_expiry_date, get_interrogation_form_expiry_date

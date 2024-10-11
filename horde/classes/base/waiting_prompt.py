@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 import json
 import uuid
 from datetime import datetime, timedelta
@@ -7,15 +11,15 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.sql import expression
 
-from horde import horde_redis as hr
 from horde import vars as hv
 from horde.bridge_reference import check_bridge_capability
 from horde.classes.base.processing_generation import ProcessingGeneration
 from horde.classes.kobold.processing_generation import TextProcessingGeneration
 from horde.classes.stable.processing_generation import ImageProcessingGeneration
 from horde.flask import SQLITE_MODE, db
+from horde.horde_redis import horde_redis as hr
 from horde.logger import logger
-from horde.utils import get_db_uuid, get_expiry_date
+from horde.utils import get_db_uuid, get_expiry_date, get_extra_slow_expiry_date
 
 procgen_classes = {
     "template": ProcessingGeneration,
@@ -87,7 +91,9 @@ class WaitingPrompt(db.Model):
     ipaddr = db.Column(db.String(39))  # ipv6
     safe_ip = db.Column(db.Boolean, default=False, nullable=False)
     trusted_workers = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    validated_backends = db.Column(db.Boolean, default=True, nullable=False, index=True)
     slow_workers = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    extra_slow_workers = db.Column(db.Boolean, default=False, nullable=False, index=True)
     worker_blacklist = db.Column(db.Boolean, default=False, nullable=False, index=True)
     faulted = db.Column(db.Boolean, default=False, nullable=False, index=True)
     active = db.Column(db.Boolean, default=False, nullable=False, index=True)
@@ -100,6 +106,7 @@ class WaitingPrompt(db.Model):
     things = db.Column(db.BigInteger, default=0, nullable=False)
     total_usage = db.Column(db.Float, default=0, nullable=False)
     extra_priority = db.Column(db.Integer, default=0, nullable=False, index=True)
+    # TODO: Delete. Obsoleted.
     job_ttl = db.Column(db.Integer, default=150, nullable=False)
     disable_batching = db.Column(db.Boolean, default=False, nullable=False)
     webhook = db.Column(db.String(1024))
@@ -199,7 +206,6 @@ class WaitingPrompt(db.Model):
         self.things = 0
         self.total_usage = round(self.things * self.n, 2)
         self.prepare_job_payload()
-        self.set_job_ttl()
         db.session.commit()
 
     def prepare_job_payload(self):
@@ -235,7 +241,8 @@ class WaitingPrompt(db.Model):
         current_n = self.n
         self.n -= safe_amount
         payload = self.get_job_payload(current_n)
-        db.session.commit()
+        # This does a commit as well
+        self.refresh(worker)
         procgen_class = procgen_classes[self.wp_type]
         gens_list = []
         model = None
@@ -277,31 +284,47 @@ class WaitingPrompt(db.Model):
             "id": procgen_list[0].id,
             "model": procgen_list[0].model,
             "ids": [g.id for g in procgen_list],
+            "ttl": procgen_list[0].job_ttl,
         }
         if self.extra_source_images and check_bridge_capability("extra_source_images", procgen_list[0].worker.bridge_agent):
             prompt_payload["extra_source_images"] = self.extra_source_images["esi"]
 
         return prompt_payload
 
-    def is_completed(self):
-        if self.faulted:
-            return True
-        if self.needs_gen():
-            return False
+    def count_finished_jobs(self):
         procgen_class = procgen_classes[self.wp_type]
-        finished_procgens = (
+        return (
             db.session.query(procgen_class.wp_id)
             .filter(
                 procgen_class.wp_id == self.id,
-                procgen_class.fake == False,  # noqa E712
+                procgen_class.fake.is_(False),
                 or_(
-                    procgen_class.faulted == True,  # noqa E712
+                    procgen_class.faulted.is_(True),
                     procgen_class.generation != None,  # noqa E712
                 ),
             )
             .count()
         )
-        if finished_procgens < self.jobs:
+
+    def count_processing_jobs(self):
+        procgen_class = procgen_classes[self.wp_type]
+        return (
+            db.session.query(procgen_class.wp_id)
+            .filter(
+                procgen_class.wp_id == self.id,
+                procgen_class.fake.is_(False),
+                procgen_class.faulted.is_(False),
+                procgen_class.generation.is_(None),
+            )
+            .count()
+        )
+
+    def is_completed(self):
+        if self.faulted:
+            return True
+        if self.needs_gen():
+            return False
+        if self.count_finished_jobs() - self.count_processing_jobs() < self.jobs:
             return False
         return True
 
@@ -451,8 +474,13 @@ class WaitingPrompt(db.Model):
         except Exception as err:
             logger.warning(f"Error when aborting WP. Skipping: {err}")
 
-    def refresh(self):
-        self.expiry = get_expiry_date()
+    def refresh(self, worker=None):
+        if worker is not None and worker.extra_slow_worker is True:
+            self.expiry = get_extra_slow_expiry_date()
+        else:
+            new_expiry = get_expiry_date()
+            if self.expiry < new_expiry:
+                self.expiry = new_expiry
         db.session.commit()
 
     def is_stale(self):
@@ -462,13 +490,6 @@ class WaitingPrompt(db.Model):
 
     def get_priority(self):
         return self.extra_priority
-
-    def set_job_ttl(self):
-        """Returns how many seconds each job request should stay waiting before considering it stale and cancelling it
-        This function should be overriden by the invididual hordes depending on how the calculating ttl
-        """
-        self.job_ttl = 150
-        db.session.commit()
 
     def refresh_worker_cache(self):
         worker_ids = [worker.worker_id for worker in self.workers]

@@ -1,3 +1,8 @@
+-- SPDX-FileCopyrightText: 2024 2022 Tazlin
+-- SPDX-FileCopyrightText: 2024 Tazlin
+--
+-- SPDX-License-Identifier: AGPL-3.0-or-later
+
 CREATE OR REPLACE PROCEDURE compile_imagegen_stats_totals()
 LANGUAGE plpgsql
 AS $$
@@ -29,12 +34,11 @@ BEGIN
 
     -- Insert compiled statistics into compiled_image_gen_stats_totals
     INSERT INTO compiled_image_gen_stats_totals (
-        created, minute_images, minute_pixels, hour_images, hour_pixels, 
+        created, minute_images, minute_pixels, hour_images, hour_pixels,
         day_images, day_pixels, month_images, month_pixels, total_images, total_pixels
     ) VALUES (
-        (NOW() at time zone 'utc'), count_minute, ps_minute, count_hour, ps_hour, 
+        (NOW() at time zone 'utc'), count_minute, ps_minute, count_hour, ps_hour,
         count_day, ps_day, count_month, ps_month, count_total, ps_total
     );
 END;
 $$;
-

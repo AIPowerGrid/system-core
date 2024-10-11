@@ -1,7 +1,11 @@
+-- SPDX-FileCopyrightText: 2024 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+--
+-- SPDX-License-Identifier: AGPL-3.0-or-later
+
 -- Show text generations per client for last month
 SELECT
-    COUNT(*), 
-    CASE 
+    COUNT(*),
+    CASE
         WHEN client_agent LIKE '%Agnaistic%' THEN 'Agnaistic'
         WHEN client_agent LIKE '%ArtBot%' THEN 'ArtBot'
         WHEN client_agent LIKE '%DreamDiffusion%' THEN 'DreamDiffusion'

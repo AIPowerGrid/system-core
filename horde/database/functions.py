@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 import json
 import os
 import time
@@ -9,7 +13,6 @@ from sqlalchemy import Boolean, and_, func, not_, or_
 from sqlalchemy.orm import noload
 
 import horde.classes.base.stats as stats
-from horde import horde_redis as hr
 from horde import vars as hv
 from horde.bridge_reference import (
     check_bridge_capability,
@@ -30,6 +33,7 @@ from horde.classes.stable.worker import ImageWorker
 from horde.database.classes import FakeWPRow
 from horde.enums import State
 from horde.flask import SQLITE_MODE, db
+from horde.horde_redis import horde_redis as hr
 from horde.logger import logger
 from horde.model_reference import model_reference
 from horde.utils import hash_api_key, validate_regex
@@ -212,6 +216,13 @@ def find_sharedkey(shared_key):
 def find_worker_by_name(worker_name, worker_class=ImageWorker):
     worker = db.session.query(worker_class).filter_by(name=worker_name).first()
     return worker
+
+
+def find_worker_id_by_name(worker_name):
+    for worker_class in [ImageWorker, TextWorker, InterrogationWorker]:
+        worker_id = db.session.query(worker_class.id).filter_by(name=worker_name).first()
+        if worker_id:
+            return worker_id
 
 
 def worker_name_exists(worker_name):
@@ -758,7 +769,7 @@ def count_things_for_specific_model(wp_class, procgen_class, model_name):
 
 
 def get_sorted_wp_filtered_to_worker(worker, models_list=None, blacklist=None, priority_user_ids=None, page=0):
-    # This is just the top 25 - Adjusted method to send ImageWorker object. Filters to add.
+    # This is just the top 3 - Adjusted method to send ImageWorker object. Filters to add.
     # TODO: Filter by ImageWorker not in WP.tricked_worker
     # TODO: If any word in the prompt is in the WP.blacklist rows, then exclude it (L293 in base.worker.ImageWorker.gan_generate())
     PER_PAGE = 3  # how many requests we're picking up to filter further
@@ -835,6 +846,13 @@ def get_sorted_wp_filtered_to_worker(worker, models_list=None, blacklist=None, p
             or_(
                 worker.speed >= 500000,  # 0.5 MPS/s
                 ImageWaitingPrompt.slow_workers == True,  # noqa E712
+            ),
+            or_(
+                worker.extra_slow_worker is False,
+                and_(
+                    worker.extra_slow_worker is True,
+                    ImageWaitingPrompt.extra_slow_workers.is_(True),
+                ),
             ),
             or_(
                 not_(ImageWaitingPrompt.params.has_key("transparent")),
@@ -1043,6 +1061,12 @@ def count_skipped_image_wp(worker, models_list=None, blacklist=None, priority_us
         ).count()
         if skipped_wps > 0:
             ret_dict["performance"] = skipped_wps
+    if worker.extra_slow_worker is True:
+        skipped_wps = open_wp_list.filter(
+            ImageWaitingPrompt.extra_slow_workers == False,  # noqa E712
+        ).count()
+        if skipped_wps > 0:
+            ret_dict["performance"] = ret_dict.get("performance", 0) + skipped_wps
     # Count skipped WPs requiring trusted workers
     if worker.user.trusted is False:
         skipped_wps = open_wp_list.filter(
