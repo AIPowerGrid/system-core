@@ -80,11 +80,27 @@ on‑chain content**.
   (not regenerable); TEE is the only path to true verification (roadmap; most operators lack
   TEE hardware today).
 
-**GAP to close (contract change):** `ModelRegistry`/`ModelVault` has **no `deterministic`
-flag** — capability flags are `inpainting/img2img/controlnet/lora/isNSFW` only. Add
-`bool deterministic` (a.k.a. `strictReproducible`) to the `Model` struct, and have
-`GridNFT.mintArtworkComplete` require `tier == STRICT ⇒ model.deterministic`. Without this,
-"only deterministic models mint reproducible NFTs" is convention, not enforced.
+**Determinism is a property of the RECIPE, not the model.** The same model reproduces in one
+workflow and not in another. A recipe is deterministic only if ALL of:
+- its `modelId` resolves to **pinned, immutable weights** (content‑hashed in ModelRegistry),
+- **every node** in its graph is in the **approved deterministic‑safe node set**,
+- its **sampler + scheduler are deterministic** ones,
+- **precision is pinned** (fp32 for STRICT), and seed is fixed.
+
+This needs an **approved node registry** with two allowlists (overlapping):
+- **SAFE** — vetted for execution (no `exec`/SSRF/fs‑write). A node not in SAFE never runs. (Security.)
+- **DETERMINISTIC** — a subset of SAFE with no nondeterminism. Required for STRICT eligibility.
+
+**Where determinism is decided:** at **recipe creation** (the pre‑store gate). The validator
+walks the graph → if every node ∈ DETERMINISTIC + sampler/scheduler/precision deterministic +
+model pinned → set `recipe.deterministic = true` (recorded on the recipe in RecipeVault).
+**`GridNFT` STRICT mint gates on `recipe.deterministic`** (and the pinned model), NOT a model
+flag. Doing it per‑model would be wrong — a deterministic model in a non‑deterministic graph
+must not mint a "reproducible" NFT.
+
+**Contract changes:** add `bool deterministic` to the **recipe** record (RecipeVault); add a
+**node registry** (on‑chain for full governance, or off‑chain allowlist whose verdict is
+recorded on the recipe); `GridNFT` requires `tier == STRICT ⇒ recipe.deterministic`.
 
 **Caveat to validate, not assume:** even fp32 isn't guaranteed byte‑identical across GPU
 *architectures* (different SM counts → different reduction orders for some kernels). Before
@@ -190,8 +206,11 @@ re‑hash + (sample) re‑execute to verify the worker ran the approved recipe �
 
 ## Open questions (decide before/inside each phase)
 
-- **Add `deterministic` flag to `ModelRegistry`/`ModelVault`** + gate `GridNFT` STRICT mint on
-  it (contract change — the gap found above).
+- **`deterministic` flag lives on the RECIPE** (not the model), set at creation by validating
+  the graph against the **approved node registry** (SAFE + DETERMINISTIC allowlists) +
+  deterministic sampler/scheduler/precision + pinned model. Gate `GridNFT` STRICT on it.
+- **Build the node registry** — the SAFE allowlist is also the security gate (creation‑time
+  node review); DETERMINISTIC is the STRICT‑eligibility subset. On‑chain vs off‑chain‑recorded.
 - **Validate cross‑hardware determinism** for STRICT models across worker GPU classes, or
   restrict STRICT minting to a validated hardware tier.
 - Recipe metadata home: extend the contract (`templateVars`/`requiredModels`/`requiredNodes`)
