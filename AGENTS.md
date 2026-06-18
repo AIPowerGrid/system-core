@@ -32,7 +32,7 @@ concrete detail in children. Delete stale notes instead of explaining history.
 
 ---
 
-# system-core — the AI Power Grid coordinator
+# grid-core — the AI Power Grid coordinator
 
 ## Purpose
 
@@ -54,7 +54,7 @@ rewards on-chain (Base). This is "the new grid."
 ## Local Contracts
 
 - **Inherit org engineering standards:** `aipg-documentation/engineering-standards/`
-  (core + `git.md` + `python.md`). The rules below are system-core specializations.
+  (core + `git.md` + `python.md`). The rules below are grid-core specializations.
 - **The spine (ADR-0001):** centralized coordinator + decentralized *verifiable* compute +
   on-chain economics. Trust comes from verification + stake, not from removing the
   coordinator. P2P/mesh coordination is a deferred research track — not the main line.
