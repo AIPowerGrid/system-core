@@ -1,0 +1,415 @@
+<!--
+SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+SPDX-FileCopyrightText: 2026 AI Power Grid
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+{% extends "master.html" %}
+{% block content %}
+<style>
+  .reg {
+    max-width: 540px;
+    margin: 3rem auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem 1.75rem;
+  }
+
+  .reg .logo {
+    display: block;
+    width: 76px;
+    height: 76px;
+    margin: 0 auto 0.75rem auto;
+    border-radius: var(--radius);
+  }
+
+  .reg h1 {
+    font-size: 1.75rem;
+    color: var(--text);
+    font-weight: 700;
+    text-align: center;
+    margin: 0 0 0.25rem 0;
+  }
+
+  .reg .sub {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.95rem;
+    margin: 0 0 1.75rem 0;
+  }
+
+  /* ── OAuth ── */
+  .reg .oauth-label {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    text-align: center;
+    margin: 0 0 0.6rem 0;
+    font-weight: 600;
+  }
+
+  .oauth-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .oauth-row a {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 46px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+    text-decoration: none;
+    transition: border-color 0.15s, background 0.15s;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+  }
+
+  .oauth-row a:hover {
+    border-color: var(--accent);
+    background: var(--bg-input);
+  }
+
+  .oauth-row a svg { width: 20px; height: 20px; flex-shrink: 0; }
+
+  /* ── Wallet section ── */
+  .wallet-section {
+    margin-top: 0.75rem;
+  }
+
+  .wallet-section a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 46px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+    text-decoration: none;
+    transition: border-color 0.15s, background 0.15s;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+  }
+
+  .wallet-section a:hover {
+    border-color: var(--accent);
+    background: var(--bg-input);
+  }
+
+  .wallet-section a svg { width: 20px; height: 20px; flex-shrink: 0; }
+
+  .wallet-tiers {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+  }
+
+  .wallet-tier {
+    flex: 1;
+    text-align: center;
+    padding: 0.4rem 0.25rem;
+    border-radius: var(--radius-sm);
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+  }
+
+  .wallet-tier .tier-kudos {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  .wallet-tier .tier-desc {
+    font-size: 0.76rem;
+    color: var(--text-dim);
+    margin-top: 0.1rem;
+  }
+
+  /* ── Divider ── */
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1.25rem 0;
+    font-size: 0.82rem;
+    color: var(--text-dim);
+  }
+
+  .divider::before,
+  .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── Form ── */
+  .reg label {
+    display: block;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--text-label);
+    margin: 0 0 0.35rem 0;
+  }
+
+  .reg input[type="text"] {
+    width: 100%;
+    padding: 11px 14px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 15px;
+    font-family: var(--font);
+    box-shadow: none;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+  }
+
+  .reg input[type="text"]:focus {
+    outline: none;
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+
+  .reg input[type="text"]::placeholder { color: var(--text-dim); }
+
+  .reg .hint {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    margin: 0.25rem 0 0 0;
+  }
+
+  .reg .submit-btn {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    margin-top: 0.85rem;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius-sm);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: background 0.15s, box-shadow 0.15s;
+  }
+
+  .reg .submit-btn:hover {
+    background: var(--accent-hover);
+    box-shadow: 0 0 20px var(--accent-glow);
+  }
+
+  /* ── API key result ── */
+  .reg .result { text-align: center; }
+
+  .reg .result h2 {
+    font-size: 1.15rem;
+    color: var(--green);
+    font-weight: 600;
+    margin: 0 0 0.4rem 0;
+    text-align: center;
+  }
+
+  .reg .result .warn {
+    color: var(--yellow);
+    font-size: 0.85rem;
+    margin: 0 0 0.85rem 0;
+  }
+
+  .key-box {
+    display: inline-flex;
+    align-items: center;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    gap: 8px;
+    margin: 0 auto 0.75rem auto;
+    font-family: var(--mono);
+  }
+
+  .key-box .kt {
+    color: var(--text);
+    font-size: 1.05rem;
+    letter-spacing: 0.04em;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  .key-box button {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    font-family: var(--font);
+    white-space: nowrap;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .key-box button:hover {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+
+  .key-box button.ok {
+    color: var(--green);
+    border-color: var(--green);
+  }
+
+  .reg .result .note {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin: 0 0 1rem 0;
+  }
+
+  .reg .result .links {
+    font-size: 0.85rem;
+  }
+
+  .reg .result .links a { color: var(--accent); margin: 0 0.35rem; }
+
+  /* ── Alert ── */
+  .reg .alert {
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    margin: 0 0 1.25rem 0;
+    padding: 8px 12px;
+    background: var(--yellow-dim);
+    border: 1px solid rgba(251, 191, 36, 0.25);
+    color: var(--yellow);
+  }
+
+  /* ── Footer ── */
+  .reg .foot {
+    text-align: center;
+    margin-top: 1.25rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.78rem;
+    color: var(--text-dim);
+  }
+
+  .reg .foot a { color: var(--text-dim); margin: 0 0.35rem; }
+  .reg .foot a:hover { color: var(--accent); }
+
+  /* ── Mobile ── */
+  @media (max-width: 480px) {
+    .reg { margin: 1rem auto; padding: 1.5rem 1.25rem; }
+    .oauth-row { flex-direction: column; }
+  }
+</style>
+
+<div class="reg">
+  <img src="https://aipowergrid.io/aipg-main.png" alt="AI Power Grid" class="logo"/>
+  <h1>Join the Grid</h1>
+  <p class="sub">Get an API key for {{ horde_title }}</p>
+
+  {% if error %}
+  <div class="alert" role="alert">{{ error }}</div>
+  {% endif %}
+
+  {% if api_key %}
+  <div class="result">
+    <h2>API Key Created</h2>
+    <p class="warn">Save it now — you won't see it again.</p>
+    <div class="key-box" autocomplete="off">
+      <span class="kt" id="kd"></span>
+      <button type="button" id="tb">Show</button>
+      <button type="button" id="cb">Copy</button>
+    </div>
+    <p class="note">Use as the <code>apikey</code> header when calling the API.</p>
+    <div class="links">
+      <a href="{{ horde_url }}/api">API docs</a>
+      <span style="color:var(--border)">&middot;</span>
+      <a href="{{ horde_url }}/register">New key</a>
+    </div>
+  </div>
+  <script>
+  (function(){
+    var k={{ api_key|tojson }},
+        m=k.slice(0,4)+Array(Math.max(0,k.length-7)).join('\u2022')+k.slice(-4),
+        r=false,
+        d=document.getElementById('kd'),
+        t=document.getElementById('tb'),
+        c=document.getElementById('cb');
+    d.textContent=m;
+    t.addEventListener('click',function(){r=!r;d.textContent=r?k:m;t.textContent=r?'Hide':'Show';});
+    c.addEventListener('click',function(){navigator.clipboard.writeText(k).then(function(){c.textContent='Copied!';c.classList.add('ok');setTimeout(function(){c.textContent='Copy';c.classList.remove('ok');},2000);});});
+  })();
+  </script>
+
+  {% else %}
+  <p class="oauth-label">Sign in with</p>
+  <div class="oauth-row">
+    <a href="/google" class="o-google">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+      <span>Google</span>
+    </a>
+    <a href="/discord" class="o-discord">
+      <svg viewBox="0 0 24 24" fill="#fff"><path d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52.07.07 0 0 0-.08.04c-.21.38-.45.87-.61 1.25a18.27 18.27 0 0 0-5.49 0 12.64 12.64 0 0 0-.62-1.25.07.07 0 0 0-.08-.04 19.74 19.74 0 0 0-4.89 1.52.07.07 0 0 0-.03.03C1.07 8.42.32 12.33.7 16.2a.08.08 0 0 0 .03.05 19.9 19.9 0 0 0 5.99 3.03.08.08 0 0 0 .08-.03c.46-.63.87-1.3 1.22-2a.08.08 0 0 0-.04-.1 13.1 13.1 0 0 1-1.87-.9.08.08 0 0 1 0-.12c.13-.09.25-.19.37-.29a.07.07 0 0 1 .07-.01c3.93 1.8 8.18 1.8 12.07 0a.07.07 0 0 1 .08.01c.12.1.24.2.37.29a.08.08 0 0 1 0 .12c-.6.35-1.22.65-1.87.9a.08.08 0 0 0-.04.1c.36.7.77 1.37 1.22 2a.07.07 0 0 0 .08.03 19.83 19.83 0 0 0 6-3.03.08.08 0 0 0 .03-.05c.44-4.54-.73-8.49-3.1-11.99a.06.06 0 0 0-.03-.03zM8.02 13.97c-1.04 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.84 2.12-1.89 2.12zm6.97 0c-1.04 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.83 2.12-1.89 2.12z"/></svg>
+      <span>Discord</span>
+    </a>
+    <a href="/github" class="o-github">
+      <svg viewBox="0 0 24 24" fill="#fff"><path d="M12 2C6.48 2 2 6.48 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.93 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.56 9.56 0 0 1 12 6.8c.85.004 1.71.11 2.51.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.16.59.67.5A10.02 10.02 0 0 0 22 12c0-5.52-4.48-10-10-10z"/></svg>
+      <span>GitHub</span>
+    </a>
+  </div>
+
+  <div class="wallet-section">
+    <a href="/wallet">
+      <svg viewBox="0 0 24 24" fill="#fff"><path d="M21 7H3a1 1 0 0 1-1-1V5a3 3 0 0 1 3-3h13a3 3 0 0 1 3 3v2zM2 9v9a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V9H2zm14 5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
+      <span>Connect AIPG Wallet</span>
+    </a>
+    <div class="wallet-tiers">
+      <div class="wallet-tier">
+        <div class="tier-kudos">+500 den</div>
+        <div class="tier-desc">Connect wallet</div>
+      </div>
+      <div class="wallet-tier">
+        <div class="tier-kudos">+2,500 den</div>
+        <div class="tier-desc">Hold 10k+ AIPG</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider">or create a pseudonymous account</div>
+
+  <form method="post" action="/register" class="register-form">
+    <div>
+      <label for="username">Username</label>
+      <input type="text"
+             id="username"
+             name="username"
+             placeholder="Choose a username"
+             required
+             maxlength="30"
+             pattern="[A-Za-z0-9_]+"
+             title="Letters, numbers, and underscores only"
+             autocomplete="username"/>
+      <p class="hint">Letters, numbers, and underscores only. Key cannot be recovered if lost.</p>
+    </div>
+    <button type="submit" class="submit-btn">Create API key</button>
+  </form>
+  {% endif %}
+
+  <div class="foot">
+    <a href="{{ horde_url }}">Home</a>
+    <span>&middot;</span>
+    <a href="{{ horde_url }}/api">API Docs</a>
+  </div>
+</div>
+{% endblock %}

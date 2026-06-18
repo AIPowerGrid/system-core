@@ -1,0 +1,336 @@
+# SPDX-FileCopyrightText: 2022 Konstantinos Thoukydidis <mail@dbzer0.com>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+
+from horde import exceptions as e
+from horde.bridge_reference import (
+    check_bridge_capability,
+    check_sampler_capability,
+    is_latest_bridge_version,
+    is_official_bridge_version,
+)
+from horde.classes.base.worker import Worker
+from horde.consts import KNOWN_POST_PROCESSORS
+from horde.flask import db
+from horde.logger import logger
+from horde.model_reference_blockchain import model_reference
+from horde.suspicions import Suspicions
+
+
+class ImageWorker(Worker):
+    __mapper_args__ = {
+        "polymorphic_identity": "stable_worker",
+    }
+    # TODO: Switch to max_power
+    max_pixels = db.Column(db.BigInteger, default=512 * 512, nullable=False)
+    allow_img2img = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    allow_painting = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    allow_post_processing = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    allow_controlnet = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    allow_sdxl_controlnet = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    allow_lora = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    limit_max_steps = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    wtype = "image"
+
+    def check_in(self, max_pixels, **kwargs):
+        super().check_in(**kwargs)
+        if kwargs.get("max_pixels", 512 * 512) > 3072 * 3072:  # FIXME #noqa SIM102
+            if not self.user.trusted:
+                self.report_suspicion(reason=Suspicions.EXTREME_MAX_PIXELS)
+        self.max_pixels = max_pixels
+        self.allow_img2img = kwargs.get("allow_img2img", True)
+        self.allow_painting = kwargs.get("allow_painting", True)
+        self.allow_post_processing = kwargs.get("allow_post_processing", True)
+        self.allow_controlnet = kwargs.get("allow_controlnet", False)
+        self.allow_sdxl_controlnet = kwargs.get("allow_sdxl_controlnet", False)
+        self.allow_lora = kwargs.get("allow_lora", False)
+        self.limit_max_steps = kwargs.get("limit_max_steps", False)
+        if len(self.get_model_names()) == 0:
+            self.set_models(["stable_diffusion"])
+        paused_string = ""
+        if self.paused:
+            paused_string = "(Paused) "
+        db.session.commit()
+        logger.trace(
+            f"{paused_string}Stable Worker {self.name} checked-in, offering models {self.get_model_names()} "
+            f"at {self.max_pixels} max pixels",
+        )
+
+    def calculate_uptime_reward(self):
+        baseline = 50 + (len(self.get_model_names()) * 2)
+        if self.allow_lora:
+            baseline += 30
+        return baseline
+
+    def can_generate(self, waiting_prompt):
+        can_generate = super().can_generate(waiting_prompt)
+        if not can_generate[0]:
+            return [can_generate[0], can_generate[1]]
+        # logger.warning(datetime.utcnow())
+        if waiting_prompt.source_image and not check_bridge_capability("img2img", self.bridge_agent):
+            return [False, "img2img"]
+        # logger.warning(datetime.utcnow())
+        if waiting_prompt.source_processing in [
+            "inpainting",
+            "outpainting",
+        ]:
+            if not check_bridge_capability("inpainting", self.bridge_agent):
+                return [False, "painting"]
+            if not model_reference.has_inpainting_models(self.get_model_names()):
+                return [False, "models"]
+            if not self.allow_painting:
+                return [False, "painting"]
+        # If the only model loaded is the inpainting ones, we skip the worker when this kind of work is not required
+        if waiting_prompt.source_processing not in [
+            "inpainting",
+            "outpainting",
+        ] and model_reference.has_only_inpainting_models(self.get_model_names()):
+            return [False, "models"]
+        if not check_sampler_capability(
+            waiting_prompt.gen_payload.get("sampler_name", "k_euler_a"),
+            self.bridge_agent,
+            waiting_prompt.gen_payload.get("karras", False),
+        ):
+            return [False, "bridge_version"]
+        # logger.warning(datetime.utcnow())
+        if len(waiting_prompt.gen_payload.get("post_processing", [])) >= 1 and not check_bridge_capability(
+            "post-processing",
+            self.bridge_agent,
+        ):
+            return [False, "bridge_version"]
+        for pp in KNOWN_POST_PROCESSORS:
+            if pp in waiting_prompt.gen_payload.get("post_processing", []) and not check_bridge_capability(
+                pp,
+                self.bridge_agent,
+            ):
+                return [False, "bridge_version"]
+        if waiting_prompt.source_image and not self.allow_img2img:
+            return [False, "img2img"]
+        # Prevent txt2img requests being sent to "stable_diffusion_inpainting" workers
+        if not waiting_prompt.source_image and (
+            self.models == ["stable_diffusion_inpainting"] or waiting_prompt.models == ["stable_diffusion_inpainting"]
+        ):
+            return [False, "models"]
+        if waiting_prompt.params.get("tiling") and not check_bridge_capability("tiling", self.bridge_agent):
+            return [False, "bridge_version"]
+        if waiting_prompt.params.get("return_control_map") and not check_bridge_capability(
+            "return_control_map",
+            self.bridge_agent,
+        ):
+            return [False, "bridge_version"]
+        if waiting_prompt.params.get("control_type"):
+            if not check_bridge_capability("controlnet", self.bridge_agent):
+                return [False, "bridge_version"]
+            if not check_bridge_capability("image_is_control", self.bridge_agent):
+                return [False, "bridge_version"]
+            if not self.allow_controlnet:
+                return [False, "controlnet"]
+        if waiting_prompt.params.get("workflow") == "qr_code":
+            if not check_bridge_capability("controlnet", self.bridge_agent):
+                return [False, "bridge_version"]
+            if not check_bridge_capability("qr_code", self.bridge_agent):
+                return [False, "bridge_version"]
+            if "stable_diffusion_xl" in model_reference.get_all_model_baselines(self.get_model_names()) and not self.allow_sdxl_controlnet:
+                return [False, "controlnet"]
+        if waiting_prompt.params.get("hires_fix") and not check_bridge_capability("hires_fix", self.bridge_agent):
+            return [False, "bridge_version"]
+        if (
+            waiting_prompt.params.get("hires_fix")
+            and "stable_cascade" in model_reference.get_all_model_baselines(self.get_model_names())
+            and not check_bridge_capability("stable_cascade_2pass", self.bridge_agent)
+        ):
+            return [False, "bridge_version"]
+        baselines = model_reference.get_all_model_baselines(self.get_model_names())
+        if any(b.startswith("flux") for b in baselines) and not check_bridge_capability(
+            "flux",
+            self.bridge_agent,
+        ):
+            return [False, "bridge_version"]
+        if waiting_prompt.params.get("clip_skip", 1) > 1 and not check_bridge_capability(
+            "clip_skip",
+            self.bridge_agent,
+        ):
+            return [False, "bridge_version"]
+        if any(lora.get("is_version") for lora in waiting_prompt.params.get("loras", [])) and not check_bridge_capability(
+            "lora_versions",
+            self.bridge_agent,
+        ):
+            return [False, "bridge_version"]
+        if not waiting_prompt.safe_ip and not self.allow_unsafe_ipaddr:
+            return [False, "unsafe_ip"]
+        if self.limit_max_steps:
+            if len(waiting_prompt.get_model_names()) > 1:
+                for mn in waiting_prompt.get_model_names():
+                    avg_steps = (
+                        int(
+                            model_reference.get_model_requirements(mn).get("min_steps", 20)
+                            + model_reference.get_model_requirements(mn).get("max_steps", 40),
+                        )
+                        / 2
+                    )
+                    if waiting_prompt.get_accurate_steps() > avg_steps:
+                        return [False, "step_count"]
+            else:
+                # If the request has an empty model list, we compare instead to the worker's model list
+                for mn in self.get_model_names():
+                    avg_steps = (
+                        int(
+                            model_reference.get_model_requirements(mn).get("min_steps", 20)
+                            + model_reference.get_model_requirements(mn).get("max_steps", 40),
+                        )
+                        / 2
+                    )
+                    if waiting_prompt.get_accurate_steps() > avg_steps:
+                        return [False, "step_count"]
+        # We do not give untrusted workers anon or VPN generations, to avoid anything slipping by and spooking them.
+        # logger.warning(datetime.utcnow())
+        if not self.user.trusted:  # FIXME #noqa SIM102
+            # if waiting_prompt.user.is_anon():
+            #    return [False, 'untrusted']
+            if not waiting_prompt.safe_ip and not waiting_prompt.user.trusted:
+                return [False, "untrusted"]
+        if not self.allow_post_processing and len(waiting_prompt.gen_payload.get("post_processing", [])) >= 1:
+            return [False, "post-processing"]
+        # When the worker requires upfront kudos, the user has to have the required kudos upfront
+        # But we allowe prioritized and trusted users to bypass this
+        if self.require_upfront_kudos:
+            user_actual_kudos = waiting_prompt.user.kudos
+            # We don't want to take into account minimum kudos
+            if user_actual_kudos > 0:
+                user_actual_kudos -= waiting_prompt.user.get_min_kudos()
+            if (
+                not waiting_prompt.user.trusted
+                and waiting_prompt.user.get_unique_alias() not in self.prioritized_users
+                and user_actual_kudos < waiting_prompt.kudos
+            ):
+                return [False, "kudos"]
+        return [True, None]
+
+    def get_details(self, details_privilege=0):
+        ret_dict = super().get_details(details_privilege)
+        ret_dict["max_pixels"] = self.max_pixels
+        ret_dict["megapixelsteps_generated"] = self.contributions
+        ret_dict["img2img"] = self.allow_img2img if check_bridge_capability("img2img", self.bridge_agent) else False
+        ret_dict["painting"] = self.allow_painting if check_bridge_capability("inpainting", self.bridge_agent) else False
+        ret_dict["post-processing"] = self.allow_post_processing
+        ret_dict["controlnet"] = self.allow_controlnet
+        ret_dict["sdxl_controlnet"] = self.allow_sdxl_controlnet
+        ret_dict["lora"] = self.allow_lora
+        return ret_dict
+
+    def parse_models(self, unchecked_models):
+        # We don't allow more workers to claim they can server more than 100 models atm (to prevent abuse)
+        del unchecked_models[300:]
+        models = set()
+        rejected_models = []
+        # Debug: Log what models we're checking against - using WARNING for visibility
+        logger.warning(
+            f"[WORKER] Checking {len(unchecked_models)} worker models against {len(model_reference.stable_diffusion_names)} known models",
+        )
+        logger.warning(f"[WORKER] Worker models: {unchecked_models}")
+        logger.warning(f"[WORKER] Known models (all): {list(model_reference.stable_diffusion_names)}")
+        logger.warning(f"[WORKER] User customizer role: {self.user.customizer}")
+
+        # Check RecipeVault for model names (RecipeVault is now the source of truth)
+        recipevault_models = set()
+        try:
+            # Try to import RecipeVault client (may not be available in server)
+            import os
+            import sys
+
+            # Try multiple paths to find comfy-bridge RecipeVault client
+            possible_paths = [
+                # Path relative to system-core (if comfy-bridge is sibling)
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "comfy-bridge"),
+                # Absolute path from workspace root
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "comfy-bridge"),
+                # Current working directory
+                os.path.join(os.getcwd(), "comfy-bridge"),
+            ]
+
+            recipe_client = None
+            for comfy_bridge_path in possible_paths:
+                if os.path.exists(comfy_bridge_path) and comfy_bridge_path not in sys.path:
+                    sys.path.insert(0, comfy_bridge_path)
+                    try:
+                        from comfy_bridge.recipevault_client import get_recipevault_client
+
+                        recipe_client = get_recipevault_client()
+                        logger.info(f"[WORKER] RecipeVault client loaded from {comfy_bridge_path}")
+                        break
+                    except ImportError:
+                        sys.path.remove(comfy_bridge_path)
+                        continue
+
+            if recipe_client and recipe_client.enabled:
+                all_recipes = recipe_client.fetch_all_recipes()
+                # Extract model names from recipe names (recipes are indexed by name)
+                recipevault_models = {recipe.name for recipe in all_recipes.values()}
+                logger.warning(f"[WORKER] RecipeVault models found ({len(recipevault_models)}): {list(recipevault_models)}")
+            elif recipe_client:
+                logger.debug("[WORKER] RecipeVault client available but not enabled")
+            else:
+                logger.debug("[WORKER] RecipeVault client not available - models will only be validated against stable_diffusion_names")
+        except Exception as exc:
+            logger.debug(f"[WORKER] Could not check RecipeVault: {exc}")
+            logger.debug("[WORKER] RecipeVault check failed, falling back to stable_diffusion_names only")
+
+        for model in unchecked_models:
+            usermodel = model.split("::")
+            if self.user.special and len(usermodel) == 2:
+                user_alias = usermodel[1]
+                if self.user.get_unique_alias() != user_alias:
+                    raise e.BadRequest(f"This model can only be hosted by {user_alias}")
+                models.add(model)
+            elif (
+                model in model_reference.stable_diffusion_names
+                or self.user.customizer
+                or model in model_reference.testing_models
+                or model in recipevault_models
+            ):
+                models.add(model)
+                if model in recipevault_models:
+                    logger.warning(f"[WORKER] Accepted model '{model}' from RecipeVault")
+                else:
+                    logger.warning(f"[WORKER] Accepted model: {model}")
+            else:
+                rejected_models.append(model)
+                logger.warning(f"[WORKER] Rejected model '{model}' - not in stable_diffusion_names or RecipeVault")
+        # Log summary of rejected models at info level so it's visible
+        if rejected_models:
+            logger.info(
+                f"Worker {self.name} ({self.id}): Rejected {len(rejected_models)} unknown models: {rejected_models[:10]}"
+                + (f"... and {len(rejected_models) - 10} more" if len(rejected_models) > 10 else ""),
+            )
+        if len(models) == 0:
+            raise e.BadRequest("Unfortunately we cannot accept workers serving unrecognised models at this time")
+        return models
+
+    def get_bridge_kudos_multiplier(self):
+        if is_official_bridge_version(self.bridge_agent):
+            # Obsolete hordelib workers get their kudos rewards reduced by 10%
+            if not is_latest_bridge_version(self.bridge_agent):
+                return 0.90
+        # Non-hordelib workers gets their kudos rewards reduced by 25%
+        # to incentivize switching to the latest version
+        else:
+            return 0.75
+        return 1
+
+    def get_safe_amount(self, amount, wp):
+        # For native ComfyUI batching, trust the worker's requested amount
+        # Workers know their own VRAM capabilities and batch limits
+        # The old calculation assumed sequential generation, but native batching
+        # has sub-linear VRAM scaling, so we let workers decide their batch size
+
+        # Only check if the image dimensions fit within max_pixels (single image capability)
+        mps = wp.get_amount_calculation_things()  # width * height
+        if mps > self.max_pixels:
+            # Image too large for this worker - shouldn't happen as filtered earlier
+            return 0
+
+        # Return the requested amount - worker knows what they can batch
+        if amount <= 0:
+            amount = 1
+        return amount
