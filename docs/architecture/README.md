@@ -33,7 +33,7 @@ the main line. Everything below follows from this.
   See [SAFETY_MODEL.md](SAFETY_MODEL.md).
 - **ADR-0003 — The graph layer lives at the grid, backed by RecipeVault.** Clients
   reference an on-chain approved recipe + typed inputs, never a raw graph. Workers
-  become dumb executors. Retires grid-comfy-bridge `model_mapper`.
+  become dumb executors. Retires grid-media-worker `model_mapper`.
 - **ADR-0004 — Drop horde-isms on purpose.** Kudos→on-chain credits, styles→recipes,
   gen-params→workflow, teams/news removed. See [PARITY_MATRIX.md](PARITY_MATRIX.md).
 
