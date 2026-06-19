@@ -93,6 +93,31 @@ def list_recipes() -> list[Recipe]:
     return list(_BY_ROOT.values())
 
 
+def load_local_recipes(dir_path: str) -> int:
+    """Register curated recipes from local `*.json` files (each a {_grid, ...graph}).
+    For v1 / pre-RecipeVault: drop a recipe in the dir and it's servable at startup.
+    Returns the number loaded. Name comes from `_grid.name` (else the filename)."""
+    import os
+    from .recipe_import import recipe_root
+    n = 0
+    if not os.path.isdir(dir_path):
+        return 0
+    for fn in sorted(os.listdir(dir_path)):
+        if not fn.endswith(".json"):
+            continue
+        try:
+            wf = json.load(open(os.path.join(dir_path, fn)))
+        except (ValueError, OSError):
+            continue
+        if not isinstance(wf, dict) or "_grid" not in wf:
+            continue  # not a recipe (raw workflow / unrelated)
+        name = (wf.get("_grid") or {}).get("name") or os.path.splitext(fn)[0]
+        register_recipe(recipe_root(wf), name, wf)
+        n += 1
+    logger.info("Loaded %d local recipe(s) from %s", n, dir_path)
+    return n
+
+
 # ── resolution (the safe part) ───────────────────────────────────────────────
 class RecipeError(Exception):
     """Recipe not found/approved, or inputs invalid."""

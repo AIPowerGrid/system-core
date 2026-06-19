@@ -50,6 +50,21 @@ async def _stale_job_reclaimer():
         await asyncio.sleep(60)  # Check every minute
 
 
+async def _recipe_sync_loop():
+    """Background task: refresh approved recipes from on-chain RecipeVault.
+    No-ops until RECIPEVAULT_ADDRESS/BASE_RPC_URL are set; curated local recipes
+    loaded at startup remain servable regardless. Interval via RECIPE_SYNC_SECONDS."""
+    import os
+    from .services.recipes import sync_from_recipevault
+    interval = int(os.getenv("RECIPE_SYNC_SECONDS", "600") or 600)
+    while True:
+        try:
+            await sync_from_recipevault()
+        except Exception as e:
+            logger.error(f"Recipe sync loop error: {e}")
+        await asyncio.sleep(interval)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
@@ -58,10 +73,17 @@ async def lifespan(app: FastAPI):
     await init_redis()
     await init_p2p()  # Initialize P2P (no-op if disabled)
     reclaimer = asyncio.create_task(_stale_job_reclaimer())
+    # Media recipes: load curated local recipes now (servable immediately), then
+    # refresh from RecipeVault on an interval (no-op until BASE_RPC/addr configured).
+    import os
+    from .services import recipes as _recipes
+    _recipes.load_local_recipes(os.path.join(os.path.dirname(os.path.dirname(__file__)), "recipes"))
+    recipe_sync = asyncio.create_task(_recipe_sync_loop())
     logger.info("Grid Streaming API ready.")
     yield
     logger.info("Shutting down Grid Streaming API...")
     reclaimer.cancel()
+    recipe_sync.cancel()
     await close_p2p()  # Shutdown P2P
     await close_redis()
     await close_database()

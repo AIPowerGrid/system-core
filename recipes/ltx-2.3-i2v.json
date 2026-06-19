@@ -1,5 +1,6 @@
 {
   "_grid": {
+    "name": "LTX-2.3",
     "engine": "comfyui",
     "jobType": "video",
     "deterministic": false,

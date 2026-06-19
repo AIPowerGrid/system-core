@@ -94,7 +94,7 @@ def build_recipe(wf: dict, name: str, *, job_type: str = "image", engine: str = 
     detected, notes = detect_vars(wf)
     final_vars = {**detected, **(vars or {})}
     grid = {
-        "engine": engine, "jobType": job_type, "deterministic": deterministic,
+        "name": name, "engine": engine, "jobType": job_type, "deterministic": deterministic,
         "requiredModels": required_models or [], "vars": final_vars, "clamps": clamps or {},
     }
     return {"_grid": grid, **wf}, notes
