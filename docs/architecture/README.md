@@ -7,6 +7,7 @@ refactor the code against these, not the other way around.
 
 | Doc | What it is |
 |---|---|
+| [GRID_CORE.md](GRID_CORE.md) | **Start here.** What the network is: faithful multi-protocol (Messages/Responses first-class) text + recipe-governed media, on one decentralized, on-chain-settled spine. |
 | [FOUNDATION_REVIEW.md](FOUNDATION_REVIEW.md) | Critical review of `grid_api`: how it turned out, the cracks to fix before scaling, and the 7 properties a public-utility foundation needs. |
 | [PARITY_MATRIX.md](PARITY_MATRIX.md) | Legacy AI-Horde vs new grid — what we kept, replaced, dropped on purpose, and the real gaps. |
 | [SAFETY_MODEL.md](SAFETY_MODEL.md) | Content-safety architecture: centralized now → decentralized (validator) future. Answers "do we give safety to validator nodes?" |

@@ -4,12 +4,22 @@ Expansion of **ADR‑0003** (the graph layer lives at the grid, backed by Recipe
 This is the design contract for image + video generation. Build against this; keep it
 current as the implementation lands.
 
+> **SUPERSEDED (see [GRID_CORE.md](GRID_CORE.md), decision 5):** the **ComfyUI client
+> mirror / raw‑graph acceptance is dropped.** The client surface is **OpenAI‑style
+> `/v1/images|videos` only**, where the selected "model" is an on‑chain recipe
+> (recipe‑by‑reference). ComfyUI is the *worker engine*, not a client API. The
+> "Surface 2 / hash‑gate / canonicalization" sections below are retained for history
+> but are NOT being built. Everything else (recipe governance, determinism tiers,
+> safe substitution, NFTs, long‑video, metering) stands.
+
 ## Goal
 
-Two client surfaces over **one governed dispatch core**:
+Client surface = **OpenAI‑style `/v1/images`, `/v1/videos`** over **one governed
+dispatch core**. (Historical: the doc below also described a ComfyUI mirror —
+superseded per the banner above.)
 
-1. **OpenAI‑style** (`/v1/images`, `/v1/videos`) — the easy path (aigarth, aipg.chat, casual API).
-2. **ComfyUI Cloud API mirror** (`/api/prompt`, `/ws`, `/api/upload/image`, `/api/view`, …) —
+1. **OpenAI‑style** (`/v1/images`, `/v1/videos`) — the path (aigarth, aipg.chat, API, SDK).
+2. ~~**ComfyUI Cloud API mirror**~~ (`/api/prompt`, `/ws`, `/api/upload/image`, `/api/view`, …) — DROPPED;
    the power/tooling path, so existing ComfyUI clients work almost unchanged.
 
 Both resolve to a **concrete, RecipeVault‑approved ComfyUI graph** dispatched to a worker
