@@ -82,10 +82,11 @@ async def submit_and_wait(model: str, job_type: str, payload: dict, timeout: int
     except recipes.RecipeError as e:
         raise HTTPException(status_code=400, detail=f"recipe input invalid: {e}")
     if spec is not None:
-        payload = {**payload, "comfy_graph": spec["graph"], "recipe_root": spec["recipe_root"],
-                   "recipe_id": spec.get("recipe_id"), "seed": spec["seed"],
-                   "deterministic": spec["deterministic"]}
-        logger.info(f"{job_type} job {job_id} resolved recipe {spec['recipe_root']} ({spec['name']})")
+        payload = {**payload, "recipe_engine": spec["engine"], "recipe_spec": spec["spec"],
+                   "recipe_root": spec["recipe_root"], "recipe_id": spec.get("recipe_id"),
+                   "seed": spec["seed"], "deterministic": spec["deterministic"]}
+        logger.info(f"{job_type} job {job_id} resolved recipe {spec['recipe_root']} "
+                    f"({spec['name']}, engine={spec['engine']})")
 
     await job_queue.submit_job(job_id, payload, [model], job_type=job_type)
     logger.info(f"{job_type} job {job_id} queued model={model}")

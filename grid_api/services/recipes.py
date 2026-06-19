@@ -36,8 +36,9 @@ class Recipe:
     recipe_root: str                 # bytes32 hex (content hash) — canonical id
     recipe_id: Optional[int]         # convenience alias (RecipeVault sequential id)
     name: str
-    graph: dict                      # ComfyUI API graph (the `_grid` block stripped out)
-    vars: dict[str, str]             # input name -> "nodeId.inputs.field"
+    engine: str                      # "comfyui" | "drawthings" | "native-ltx" | …
+    spec: dict                       # engine-specific executable (ComfyUI graph, DT params, …)
+    vars: dict[str, str]             # input name -> dotted path into spec (e.g. "3.inputs.seed" or "seed")
     clamps: dict[str, list]          # numeric input name -> [lo, hi]
     deterministic: bool = False
     required_models: list[str] = field(default_factory=list)
@@ -56,12 +57,13 @@ def register_recipe(recipe_root: str, name: str, workflow: dict, *,
     """Add/replace a recipe in the cache. `workflow` is the full stored graph,
     including its `_grid` metadata block (which is split out here)."""
     meta = dict(workflow.get("_grid") or {})
-    graph = {k: v for k, v in workflow.items() if k != "_grid"}
+    spec = {k: v for k, v in workflow.items() if k != "_grid"}
     r = Recipe(
         recipe_root=recipe_root.lower(),
         recipe_id=recipe_id,
         name=name,
-        graph=graph,
+        engine=str(meta.get("engine") or "comfyui"),
+        spec=spec,
         vars=dict(meta.get("vars") or {}),
         clamps=dict(meta.get("clamps") or {}),
         deterministic=bool(meta.get("deterministic", False)),
@@ -96,17 +98,20 @@ class RecipeError(Exception):
     """Recipe not found/approved, or inputs invalid."""
 
 
-def _set_slot(graph: dict, slot: str, value: Any) -> None:
-    """Set graph[node]['inputs'][field] for slot 'node.inputs.field'. Operates on
-    the parsed dict — never string substitution."""
-    parts = slot.split(".")
-    if len(parts) != 3 or parts[1] != "inputs":
-        raise RecipeError(f"bad slot spec '{slot}' (want 'nodeId.inputs.field')")
-    node_id, _, field_name = parts
-    node = graph.get(node_id)
-    if not isinstance(node, dict) or "inputs" not in node:
-        raise RecipeError(f"slot '{slot}' targets missing node/input")
-    node["inputs"][field_name] = value
+def _set_path(spec: dict, path: str, value: Any) -> None:
+    """Set a value at a dotted path into the parsed spec — engine-neutral.
+    ComfyUI: '3.inputs.seed' (nested). Draw Things / flat engines: 'seed'.
+    Operates on the parsed dict (never string substitution); the final key must
+    already exist (a recipe can only fill declared slots, not invent structure)."""
+    parts = path.split(".")
+    cur: Any = spec
+    for p in parts[:-1]:
+        if not isinstance(cur, dict) or p not in cur:
+            raise RecipeError(f"slot '{path}' targets a missing path")
+        cur = cur[p]
+    if not isinstance(cur, dict) or parts[-1] not in cur:
+        raise RecipeError(f"slot '{path}' targets a missing field")
+    cur[parts[-1]] = value
 
 
 def _clamp_num(value: Any, lo: float, hi: float) -> float | int:
@@ -134,7 +139,7 @@ def resolve(ref: str | int, inputs: dict | None = None) -> dict:
     if r is None:
         raise RecipeError(f"recipe '{ref}' is not approved / not in the vault")
 
-    graph = copy.deepcopy(r.graph)
+    spec = copy.deepcopy(r.spec)
 
     # Seed: first-class. Default to a fresh one; always echo back (for NFT repro).
     seed = inputs.get("seed")
@@ -142,27 +147,28 @@ def resolve(ref: str | int, inputs: dict | None = None) -> dict:
         seed = secrets.randbelow(2**53)
     inputs["seed"] = int(seed)
 
-    for name, slot in r.vars.items():
+    for name, path in r.vars.items():
         if name not in inputs:
             continue
         val = inputs[name]
         if name in r.clamps:                      # numeric, clamped
             lo, hi = r.clamps[name]
             val = _clamp_num(val, lo, hi)
-        elif name == "prompt" or name == "negative_prompt":
+        elif name in ("prompt", "negative_prompt"):
             val = str(val)[:_MAX_PROMPT_CHARS]
         # image inputs: caller must pass a grid upload ref; validated upstream.
-        _set_slot(graph, slot, val)
+        _set_path(spec, path, val)
 
     return {
         "recipe_root": r.recipe_root,
         "recipe_id": r.recipe_id,
         "name": r.name,
+        "engine": r.engine,
         "job_type": r.job_type,
         "deterministic": r.deterministic,
         "seed": inputs["seed"],
         "required_models": r.required_models,
-        "graph": graph,
+        "spec": spec,
     }
 
 

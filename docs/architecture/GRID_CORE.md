@@ -51,6 +51,35 @@ The north‑star framing. Read this first; the other docs are the detail.
 - **NFTs:** deterministic `(model, recipe, seed)` → reproducible on‑chain mint (GridNFT).
 - **Safety:** prompt + output moderation + CSAM backstop — mandatory for generative media.
 
+## Engines (pluralist, not ComfyUI‑centric)
+A recipe declares its **`engine`**; the worker runs the engine‑specific `spec`:
+- `comfyui` — spec = ComfyUI API graph (primary; the ecosystem).
+- `drawthings` — spec = Draw Things params (Mac/Apple‑silicon).
+- `native-ltx` / `vllm` / … — future, additive.
+The resolver injects inputs by a dotted **var‑map** that works for nested (ComfyUI)
+*and* flat (Draw Things) specs. ComfyUI is the *engine*, never baked into the protocol.
+
+## Worker tiers & fair metering
+Workers vary ~100× (RTX 5090 vs Apple‑silicon Draw Things vs old GPUs). Two things
+must account for that: **routing** and **pay**.
+
+- **Performance tiers** (per worker, per engine/job‑type): **fast** (interactive, high‑end
+  GPU), **bulk** (throughput/async, mid), **slow** (capable‑but‑slow — Macs/Draw Things,
+  old GPUs; overflow / non‑urgent / cheap). Plus capability flags: video‑capable, max
+  resolution, max frames, engines supported.
+- **Tiers are validator‑attested, not self‑declared.** Validators already re‑execute
+  deterministic recipes to verify output — they **measure throughput in the same pass** and
+  attest a tier. Self‑declared at first, validator‑corrected; claim "fast" but measure
+  "slow" → re‑tiered / slashed. Trust‑minimized, reuses the validator role + bond.
+- **Routing** matches a job's SLA (interactive vs batch) + requirements (video, resolution)
+  to tier + engine + capability. A 5‑min‑on‑a‑5090 video doesn't go to a Mac unless it's a
+  batch job that tolerates it.
+- **Metering = work done, NOT wall‑clock.** Pay **hardware‑neutral work units** —
+  megapixel‑steps (image), frame‑seconds (video) — at a per‑unit rate. Raw GPU‑seconds would
+  **overpay slow hardware** for the same output. Tiers affect routing + a latency/SLA
+  premium, not the base reward‑per‑work. *(Corrects the earlier "GPU‑seconds" note in
+  RECIPE_DISPATCH.)*
+
 ## Detail docs
 - [RECIPE_DISPATCH.md](RECIPE_DISPATCH.md) — media: recipe‑by‑reference, determinism tiers, NFTs, long‑video.
 - [SAFETY_MODEL.md](SAFETY_MODEL.md) — content safety (defense‑in‑depth, validator role).
