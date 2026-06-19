@@ -136,17 +136,33 @@ async def requeue_job(
     stream_id: str = None,
     job_type: str = "text",
     stream: str | None = None,
+    requeue_count: int = 0,
 ):
-    """Requeue a failed job back into the stream.
+    """Requeue a failed job back into the stream, carrying + capping the retry
+    count. Returns the new stream id, or None if the job has hit MAX_REQUEUE and
+    must be dead-lettered.
 
-    Called when a worker disconnects mid-generation. The original stream
-    message is acked (if stream_id provided) and a new one is added.
-    """
+    Without a cap a "poison" job (one that fails on every attempt — e.g. a
+    request the backend can't serve, or a transient that recurs) loops forever:
+    fail → requeue → redeliver → fail, striking and evicting every worker that
+    touches it (the 2026-06-16 gpt-oss "0 tokens" eviction cascade). Capping it
+    turns an infinite loop into a clean per-client failure."""
     r = get_redis()
     if stream_id:
         await r.xack(stream or _stream_for(job_type), CONSUMER_GROUP, stream_id)
-    new_id = await submit_job(job_id, payload, models, job_type=job_type)
-    logger.info(f"Requeued job {job_id} as {new_id}")
+    # Self-contained retry counter keyed by job_id — works regardless of whether
+    # the caller threads requeue_count, so a poison job is capped even on the
+    # failure path. Cleared by TTL (and the job_id is unique per request).
+    attempts = await r.incr(f"grid:requeue:{job_id}")
+    await r.expire(f"grid:requeue:{job_id}", 600)
+    if attempts > MAX_REQUEUE:
+        logger.error(
+            f"Job {job_id} hit MAX_REQUEUE ({MAX_REQUEUE}) after repeated failures "
+            f"— dead-lettering instead of requeuing"
+        )
+        return None
+    new_id = await submit_job(job_id, payload, models, requeue_count=requeue_count + 1, job_type=job_type)
+    logger.info(f"Requeued job {job_id} as {new_id} (attempt {attempts}/{MAX_REQUEUE})")
     return new_id
 
 

@@ -158,7 +158,9 @@ ledger = sa.Table(
     metadata,
     sa.Column("id", sa.BigInteger, primary_key=True, autoincrement=True),
     sa.Column("epoch_id", sa.String(32), nullable=True, index=True),  # set at settlement
-    sa.Column("job_id", sa.Uuid, nullable=False, index=True),
+    # Unique: one settled completion per job. Makes record_completion idempotent
+    # so a stale-job reclaim + the original worker both finishing can't double-pay.
+    sa.Column("job_id", sa.Uuid, nullable=False, unique=True),
     sa.Column("worker_id", sa.Uuid, nullable=False, index=True),
     sa.Column("wallet", sa.String(42), nullable=True, index=True),
     sa.Column("model", sa.String(255), nullable=False),

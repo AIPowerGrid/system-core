@@ -1,0 +1,143 @@
+# SPDX-FileCopyrightText: 2026 AI Power Grid
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+"""Keep den.MODEL_REGISTRY in sync with the on-chain ModelVault.
+
+ModelVault (a module on the Base Grid diamond) is the source of truth for which
+models are approved/active and their den "size" multiplier. This module reads
+that on an INTERVAL and caches it locally — `den.estimate_model_multiplier` and
+`den.is_model_approved` read the cache, so the hot path never makes an on-chain
+call (zero per-request latency). The chain is consulted only on the timer.
+
+Config (env): `MODELVAULT_ADDRESS` = the Grid diamond proxy address (modules are
+called through the proxy), `BASE_RPC_URL` = a Base mainnet RPC. If either is
+unset, the sync no-ops and the seeded registry stays authoritative.
+
+Non-destructive: chain models are MERGED onto the seed (chain wins on conflict),
+not replaced — so while ModelVault still holds stale legacy entries and the
+current production models aren't registered yet, the seed isn't wiped. Once
+ModelVault is repopulated with the real models, this naturally becomes the
+source of truth.
+"""
+
+import asyncio
+import logging
+import os
+
+from . import den
+
+logger = logging.getLogger("grid_api.model_registry")
+
+# Minimal ABI for the ModelVault facet (called via the Grid proxy).
+_MODEL_TUPLE = [
+    {"name": "modelHash", "type": "bytes32"},
+    {"name": "modelType", "type": "uint8"},
+    {"name": "fileName", "type": "string"},
+    {"name": "name", "type": "string"},
+    {"name": "version", "type": "string"},
+    {"name": "ipfsCid", "type": "string"},
+    {"name": "downloadUrl", "type": "string"},
+    {"name": "sizeBytes", "type": "uint256"},
+    {"name": "quantization", "type": "string"},
+    {"name": "format", "type": "string"},
+    {"name": "vramMB", "type": "uint32"},
+    {"name": "baseModel", "type": "string"},
+    {"name": "inpainting", "type": "bool"},
+    {"name": "img2img", "type": "bool"},
+    {"name": "controlnet", "type": "bool"},
+    {"name": "lora", "type": "bool"},
+    {"name": "isActive", "type": "bool"},
+    {"name": "isNSFW", "type": "bool"},
+    {"name": "timestamp", "type": "uint256"},
+    {"name": "creator", "type": "address"},
+]
+MODELVAULT_ABI = [
+    {"name": "getModelCount", "type": "function", "stateMutability": "view",
+     "inputs": [], "outputs": [{"type": "uint256"}]},
+    {"name": "getModel", "type": "function", "stateMutability": "view",
+     "inputs": [{"name": "modelId", "type": "uint256"}],
+     "outputs": [{"type": "tuple", "components": _MODEL_TUPLE}]},
+    {"name": "getDenMultiplier", "type": "function", "stateMutability": "view",
+     "inputs": [{"name": "modelId", "type": "uint256"}],
+     "outputs": [{"type": "uint256"}]},
+]
+
+# Struct field indices we read.
+_NAME_IDX = 3
+_ACTIVE_IDX = 16
+
+
+def _read_modelvault(rpc: str, addr: str) -> tuple[dict, set]:
+    """BLOCKING web3 read of ModelVault. Returns (name->multiplier, approved set).
+
+    Runs in a worker thread (see sync_from_modelvault) so it never blocks the
+    event loop."""
+    from web3 import Web3
+
+    w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 20}))
+    c = w3.eth.contract(address=Web3.to_checksum_address(addr), abi=MODELVAULT_ABI)
+
+    count = c.functions.getModelCount().call()
+
+    # Feature-detect getDenMultiplier — the facet may not be cut into the diamond
+    # yet. If absent the call reverts; we then skip multiplier reads this pass
+    # (models still gate as approved; pricing falls back to seed/DEFAULT).
+    has_den_fn = True
+    try:
+        c.functions.getDenMultiplier(0).call()
+    except Exception:
+        has_den_fn = False
+
+    multipliers: dict[str, float] = {}
+    approved: set[str] = set()
+    for mid in range(count):
+        try:
+            m = c.functions.getModel(mid).call()
+        except Exception:
+            continue
+        name = (m[_NAME_IDX] or "").strip()
+        if not name or not bool(m[_ACTIVE_IDX]):
+            continue
+        approved.add(name.lower())
+        if has_den_fn:
+            try:
+                e3 = c.functions.getDenMultiplier(mid).call()
+            except Exception:
+                e3 = 0
+            if e3 > 0:
+                multipliers[name] = e3 / 1000.0
+    return multipliers, approved
+
+
+async def sync_from_modelvault() -> int:
+    """Refresh den.MODEL_REGISTRY + approved set from the on-chain ModelVault.
+
+    Returns the number of active models seen. No-ops (returns 0) if the contract
+    isn't configured, leaving the seeded registry in place.
+    """
+    addr = os.getenv("MODELVAULT_ADDRESS")
+    rpc = os.getenv("BASE_RPC_URL")
+    if not addr or not rpc:
+        logger.info(
+            "ModelVault not configured (MODELVAULT_ADDRESS/BASE_RPC_URL) — "
+            "using seeded den.MODEL_REGISTRY (%d models)", len(den.MODEL_REGISTRY)
+        )
+        return 0
+    try:
+        multipliers, approved = await asyncio.to_thread(_read_modelvault, rpc, addr)
+    except ImportError:
+        logger.warning("web3 not installed; skipping ModelVault sync")
+        return 0
+    except Exception as e:
+        logger.error("ModelVault sync failed (registry unchanged): %s", e)
+        return 0
+
+    # Merge onto the seed (chain wins). Non-destructive — see module docstring.
+    for name, mult in multipliers.items():
+        den.register_model(name, mult)
+    den.set_approved_models(approved)
+    logger.info(
+        "ModelVault sync: %d active model(s), %d priced on-chain; registry now %d entries",
+        len(approved), len(multipliers), len(den.MODEL_REGISTRY),
+    )
+    return len(approved)
