@@ -87,20 +87,29 @@ workflow and not in another. A recipe is deterministic only if ALL of:
 - its **sampler + scheduler are deterministic** ones,
 - **precision is pinned** (fp32 for STRICT), and seed is fixed.
 
-This needs an **approved node registry** with two allowlists (overlapping):
-- **SAFE** — vetted for execution (no `exec`/SSRF/fs‑write). A node not in SAFE never runs. (Security.)
-- **DETERMINISTIC** — a subset of SAFE with no nondeterminism. Required for STRICT eligibility.
-
-**Where determinism is decided:** at **recipe creation** (the pre‑store gate). The validator
-walks the graph → if every node ∈ DETERMINISTIC + sampler/scheduler/precision deterministic +
-model pinned → set `recipe.deterministic = true` (recorded on the recipe in RecipeVault).
 **`GridNFT` STRICT mint gates on `recipe.deterministic`** (and the pinned model), NOT a model
-flag. Doing it per‑model would be wrong — a deterministic model in a non‑deterministic graph
-must not mint a "reproducible" NFT.
+flag — a deterministic model in a non‑deterministic graph must not mint a "reproducible" NFT.
 
-**Contract changes:** add `bool deterministic` to the **recipe** record (RecipeVault); add a
-**node registry** (on‑chain for full governance, or off‑chain allowlist whose verdict is
-recorded on the recipe); `GridNFT` requires `tier == STRICT ⇒ recipe.deterministic`.
+### How determinism is established — v1 vs later (deliberately lean)
+
+Recipe creation is **already permissioned** (`RECIPE_CREATOR_ROLE`), so v1 has a *curated* set
+of recipes, not permissionless submission. That lets v1 be far simpler — and actually safer:
+
+- **v1 — tested assertion.** A trusted creator runs the recipe twice **on the real worker
+  fleet**, confirms byte/perceptual reproduction, and flags `recipe.deterministic = true`
+  (recorded on‑chain). Tested‑then‑flagged **can't lie**; an automated classifier that
+  *infers* determinism without running it would mint NFTs that don't regenerate (false
+  confidence). No node registry needed yet — the permission gate is the security boundary.
+- **Later — automated node registry.** When recipe authoring **opens to permissionless
+  (bonded) creators**, add an off‑chain governed node allowlist with two flags: **SAFE**
+  (no `exec`/SSRF/fs‑write — security; a non‑SAFE node never runs) and **DETERMINISTIC**
+  (SAFE subset, no nondeterminism). A creation‑time validator then walks the graph and sets
+  the flags automatically. Build this *when* you open authoring — not before (premature
+  generality, the trap we cut from system‑core).
+
+**The registry stays off‑chain; only the per‑recipe verdict is on‑chain.** Nothing reads a
+node list on‑chain — NFT/verification/dispatch only need the recipe + its `deterministic`
+flag + the pinned model. Don't bloat the chain with churning ComfyUI node types.
 
 **Caveat to validate, not assume:** even fp32 isn't guaranteed byte‑identical across GPU
 *architectures* (different SM counts → different reduction orders for some kernels). Before
@@ -117,16 +126,18 @@ actual worker hardware classes** — or restrict STRICT minting to a validated h
   fast serving. Deterministic outputs are also regenerable from chain as a backstop, so for
   STRICT NFTs storage is convenience, not load‑bearing.
 
-## The hash gate (how raw‑graph submit stays governed)
+## Primary path: recipe‑by‑reference (not raw‑graph hashing)
 
-`recipeRoot` = hash of the **normalized** graph (variable slots blanked). On `/api/prompt`:
-blank the same slots in the client's graph, hash, compare to the vault. Match → run; the
-client still varies prompt/seed/image freely (those are the slots). This gives full ComfyUI
-client compatibility **and** the approved‑only guarantee.
+Clients **name the recipe** (`recipeId`/`recipeRoot`) + supply inputs; the grid runs the
+stored approved recipe. This is the default for both surfaces — robust, no canonicalization
+fragility. The ComfyUI mirror is ComfyUI‑*shaped* (submit/poll/`/ws`/view), not
+arbitrary‑graph‑accepting.
 
-> Normalization must be deterministic and canonical (stable key order, slot‑blanking rules)
-> so client graph and stored recipe hash identically. This is the make‑or‑break detail —
-> spec the canonicalization precisely and test it with known vectors.
+> **Deferred (optional, with permissionless authoring):** accepting a raw graph on
+> `/api/prompt` and hash‑matching it to an approved recipe (`recipeRoot` = hash of the
+> normalized graph, variable slots blanked). Elegant for tooling, but cross‑version
+> canonicalization is brittle — only build it if a real client needs to POST graphs, and
+> spec the canonicalization with known‑vector tests first.
 
 ## Surface 1 — OpenAI‑style (keep)
 
@@ -169,29 +180,48 @@ re‑hash + (sample) re‑execute to verify the worker ran the approved recipe �
 
 ## Security summary
 
-- Only approved‑structure graphs run (hash gate) → no arbitrary‑graph RCE/SSRF from clients.
+- Only **approved (vault) recipes** run; clients reference them, never submit graphs (v1) →
+  no arbitrary‑graph RCE/SSRF.
 - Inputs are values only, into typed slots, clamped → no JSON/graph injection.
 - Worker isolation still applies (egress lockdown, fs jail, presigned‑only creds) — see
-  [SAFETY_MODEL.md](SAFETY_MODEL.md); raw‑graph trust is constrained to vault recipes.
-- Recipe creation gated by role + creation‑time node‑allowlist review.
+  [SAFETY_MODEL.md](SAFETY_MODEL.md).
+- Recipe creation gated by `RECIPE_CREATOR_ROLE` (the curation IS the v1 security boundary);
+  formal node allowlist arrives with permissionless authoring (P4).
+- Content safety (prompt + output classifiers, CSAM backstop) wraps dispatch — mandatory for
+  generative media (SAFETY_MODEL).
 
 ## What exists vs net‑new
 
-- **Exists:** RecipeVault contract + SDK, `/v1/videos`, media job queue + WS worker dispatch,
-  comfy‑bridge `ws_worker`, R2 presigned upload, requeue cap.
-- **Net‑new:** recipe cache + resolver; deterministic graph canonicalization + hash gate;
-  safe typed‑slot substitution; `/api/*` mirror surface + `/ws`; capability routing;
-  per‑job‑type long lease + busy‑heartbeat; GPU‑seconds metering; recipe creation‑time validation.
+- **Exists:** RecipeVault contract + SDK, GridNFT (recipe/model/seed + ArtTier + ipfsHash),
+  `/v1/videos`, media job queue + WS worker dispatch, comfy‑bridge `ws_worker`, R2 presigned
+  upload, requeue cap.
+- **Net‑new (v1):** recipe cache + resolver; safe typed‑slot substitution; capability match;
+  per‑job‑type long lease + busy‑heartbeat; `recipe.deterministic` flag + GridNFT STRICT gate.
+- **Later:** ComfyUI‑shaped mirror + `/ws`; GPU‑seconds metering; validator re‑exec sampling;
+  node registry + creation‑time validator (P4); optional raw‑graph hash‑gate.
 
-## Phased rollout
+## Minimal v1 contract diff (small on purpose)
 
-- **P1 — Governed core.** Recipe cache+resolver, canonicalization+hash gate, safe substitution.
-  Store gorgadon's LTX as a vault recipe. Worker → dumb executor (drop `model_mapper`). Prove
-  `/v1/videos` end‑to‑end on the recipe path.
-- **P2 — Long‑video + mirror.** Async + per‑recipe lease + busy‑heartbeat + progress; then the
-  ComfyUI Cloud mirror surface (`/api/prompt` hash‑gate, `/ws`, upload/view, `object_info`).
-- **P3 — Trust + scale.** Capability routing, GPU‑seconds metering, validator re‑hash/sampling,
-  recipe creation‑time allowlist. Retire `model_mapper` everywhere.
+- **RecipeVault:** add `bool deterministic` to the recipe record (set at store time by a
+  trusted creator who tested reproduction). Keep storing the graph for on‑chain/NFT recipes;
+  allow a CID variant for off‑chain ones.
+- **ModelRegistry:** ensure model weights are **content‑hashed / pinned** (immutable ref) —
+  reproducibility depends on it.
+- **GridNFT:** require `tier == STRICT ⇒ recipe.deterministic` (read from RecipeVault).
+- **Not now:** node registry contract, on‑chain node allowlists, hash‑gate canonicalization.
+
+## Phased rollout (leaner v1)
+
+- **P1 — Governed core (recipe‑by‑reference).** Recipe cache+resolver, **safe typed‑slot
+  substitution** (no canonicalization/hash‑gate), capability match. Store gorgadon's LTX as a
+  vault recipe. Worker → dumb executor (drop `model_mapper`). Prove `/v1/videos` end‑to‑end.
+- **P2 — Long‑video + ComfyUI‑shaped mirror.** Async + per‑recipe lease + busy‑heartbeat +
+  progress; then the mirror surface (`/api/job/.../status`, `/ws`, upload/view, `object_info`)
+  — recipe‑referenced, not raw‑graph.
+- **P3 — Trust + scale + NFTs.** GPU‑seconds metering; validator re‑exec sampling (re‑run
+  deterministic recipes, compare); on‑chain reproducible NFT minting via GridNFT.
+- **P4 — Permissionless authoring.** Off‑chain node registry (SAFE/DETERMINISTIC) +
+  creation‑time validator; bonded recipe authors; optional raw‑graph hash‑gate. Build only here.
 
 ## Decisions — locked
 
