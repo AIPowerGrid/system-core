@@ -18,7 +18,7 @@ from uuid import uuid4
 import httpx
 from fastapi import HTTPException
 
-from . import job_queue, token_stream
+from . import job_queue, token_stream, recipes
 
 logger = logging.getLogger("grid_api.media")
 
@@ -69,6 +69,24 @@ async def submit_and_wait(model: str, job_type: str, payload: dict, timeout: int
     Returns the list of output objects ({url, key, sha256, seed}). Progress
     events on the channel are ignored; the DONE event carries the media JSON."""
     job_id = str(uuid4())
+
+    # Recipe-governed path: if `model` selects an approved RecipeVault recipe,
+    # resolve it to a concrete ComfyUI graph and ride it in the payload — the
+    # worker then executes the graph directly (dumb executor). If no recipe maps
+    # to this model, fall through to the legacy model-name dispatch (worker-side
+    # model_mapper) so nothing breaks during migration. See RECIPE_DISPATCH.md.
+    try:
+        # i2v start frame may arrive as `source_image`; expose it as the `image` var.
+        inputs = {**payload, "image": payload.get("image") or payload.get("source_image")}
+        spec = recipes.resolve_for_model(model, inputs)
+    except recipes.RecipeError as e:
+        raise HTTPException(status_code=400, detail=f"recipe input invalid: {e}")
+    if spec is not None:
+        payload = {**payload, "comfy_graph": spec["graph"], "recipe_root": spec["recipe_root"],
+                   "recipe_id": spec.get("recipe_id"), "seed": spec["seed"],
+                   "deterministic": spec["deterministic"]}
+        logger.info(f"{job_type} job {job_id} resolved recipe {spec['recipe_root']} ({spec['name']})")
+
     await job_queue.submit_job(job_id, payload, [model], job_type=job_type)
     logger.info(f"{job_type} job {job_id} queued model={model}")
 

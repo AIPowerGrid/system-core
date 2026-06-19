@@ -25,7 +25,6 @@ import json
 import logging
 import os
 import secrets
-import zlib
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -45,9 +44,10 @@ class Recipe:
     job_type: str = "image"          # image | video
 
 
-# recipe_root (lower hex) -> Recipe ; plus an id index for convenience refs.
+# recipe_root (lower hex) -> Recipe ; plus id + name indexes for convenience refs.
 _BY_ROOT: dict[str, Recipe] = {}
 _BY_ID: dict[int, Recipe] = {}
+_BY_NAME: dict[str, Recipe] = {}  # lowercased name -> Recipe
 
 
 # ── registry ─────────────────────────────────────────────────────────────────
@@ -69,21 +69,22 @@ def register_recipe(recipe_root: str, name: str, workflow: dict, *,
         job_type=str(meta.get("jobType") or "image"),
     )
     _BY_ROOT[r.recipe_root] = r
+    _BY_NAME[name.lower()] = r
     if recipe_id is not None:
         _BY_ID[recipe_id] = r
     return r
 
 
 def get_recipe(ref: str | int) -> Optional[Recipe]:
-    """Look up by recipe_root (hex str) or recipe_id (int or numeric str)."""
+    """Look up by recipe_root (hex str), recipe_id (int/numeric str), or name."""
     if isinstance(ref, int):
         return _BY_ID.get(ref)
     s = str(ref)
     if s.lower() in _BY_ROOT:
         return _BY_ROOT[s.lower()]
-    if s.isdigit():
-        return _BY_ID.get(int(s))
-    return None
+    if s.isdigit() and int(s) in _BY_ID:
+        return _BY_ID[int(s)]
+    return _BY_NAME.get(s.lower())
 
 
 def list_recipes() -> list[Recipe]:
@@ -165,6 +166,16 @@ def resolve(ref: str | int, inputs: dict | None = None) -> dict:
     }
 
 
+def resolve_for_model(model: str, inputs: dict | None = None) -> Optional[dict]:
+    """Media-layer entry point: if `model` selects an approved recipe (by name /
+    root / id), resolve it to a concrete graph spec; else return None so the caller
+    falls back to the legacy model-name dispatch path. `inputs` may be the raw job
+    payload — only declared recipe vars that are present get injected."""
+    if get_recipe(model) is None:
+        return None
+    return resolve(model, inputs)
+
+
 # ── on-chain sync (off the hot path; no-op until configured) ──────────────────
 async def sync_from_recipevault() -> int:
     """Pull approved recipes from RecipeVault into the cache. Returns count synced.
@@ -177,23 +188,25 @@ async def sync_from_recipevault() -> int:
         return 0
     try:
         from web3 import Web3
-        from .._abi import RECIPEVAULT_ABI  # loaded from core-integration-package/abis
+        from .._abi import RECIPEVAULT_ABI, decompress_workflow
     except Exception as e:
         logger.warning("RecipeVault sync deps unavailable (%s) — cache unchanged", e)
         return 0
     try:
         w3 = Web3(Web3.HTTPProvider(rpc))
         c = w3.eth.contract(address=w3.to_checksum_address(addr), abi=RECIPEVAULT_ABI)
-        total = c.functions.getTotalRecipes().call()
+        total = c.functions.totalRecipes().call()
         n = 0
         for rid in range(1, total + 1):
-            rec = c.functions.getRecipe(rid).call()        # struct: see RecipeVault.sol
-            root = rec[0].hex() if isinstance(rec[0], (bytes, bytearray)) else str(rec[0])
-            name = rec[1]
-            raw = c.functions.getRecipeWorkflow(rid).call()  # zlib/pako-compressed bytes
-            workflow = json.loads(zlib.decompress(raw).decode("utf-8"))
-            register_recipe("0x" + root if not str(root).startswith("0x") else root,
-                            name, workflow, recipe_id=rid)
+            # getRecipe -> (recipeId, recipeRoot, workflowData, creator,
+            #               canCreateNFTs, isPublic, compression, createdAt, name, description)
+            rec = c.functions.getRecipe(rid).call()
+            recipe_id, recipe_root, workflow_data = rec[0], rec[1], rec[2]
+            compression, name = rec[6], rec[8]
+            root_hex = recipe_root.hex() if isinstance(recipe_root, (bytes, bytearray)) else str(recipe_root)
+            root_hex = root_hex if root_hex.startswith("0x") else "0x" + root_hex
+            workflow = json.loads(decompress_workflow(workflow_data, compression).decode("utf-8"))
+            register_recipe(root_hex, name, workflow, recipe_id=int(recipe_id))
             n += 1
         logger.info("RecipeVault sync: %d recipes cached", n)
         return n

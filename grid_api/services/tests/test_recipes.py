@@ -16,7 +16,7 @@ from grid_api.services import recipes  # noqa: E402
 
 def _seed_ltx():
     """An LTX-like i2v recipe with a _grid metadata block."""
-    recipes._BY_ROOT.clear(); recipes._BY_ID.clear()
+    recipes._BY_ROOT.clear(); recipes._BY_ID.clear(); recipes._BY_NAME.clear()
     workflow = {
         "_grid": {
             "vars": {
@@ -91,6 +91,19 @@ def test_lookup_by_id():
     _seed_ltx()
     assert recipes.resolve(1, {"prompt": "x"})["recipe_root"] == "0xabc123"
     print("ok: lookup by id")
+
+
+def test_resolve_for_model_by_name():
+    _seed_ltx()
+    spec = recipes.resolve_for_model("LTX-2.3 i2v", {"prompt": "x"})  # by name (case-insensitive)
+    assert spec and spec["recipe_root"] == "0xabc123" and spec["job_type"] == "video"
+    print("ok: resolve_for_model by name")
+
+
+def test_resolve_for_model_falls_back():
+    _seed_ltx()
+    assert recipes.resolve_for_model("some-unmapped-model", {"prompt": "x"}) is None
+    print("ok: resolve_for_model returns None for unmapped (legacy fallback)")
 
 
 if __name__ == "__main__":
