@@ -38,7 +38,7 @@ class Recipe:
     name: str
     engine: str                      # "comfyui" | "drawthings" | "native-ltx" | …
     spec: dict                       # engine-specific executable (ComfyUI graph, DT params, …)
-    vars: dict[str, str]             # input name -> dotted path into spec (e.g. "3.inputs.seed" or "seed")
+    vars: dict[str, Any]             # input name -> dotted path (str) or list of paths (e.g. dual seed)
     clamps: dict[str, list]          # numeric input name -> [lo, hi]
     deterministic: bool = False
     required_models: list[str] = field(default_factory=list)
@@ -157,7 +157,10 @@ def resolve(ref: str | int, inputs: dict | None = None) -> dict:
         elif name in ("prompt", "negative_prompt"):
             val = str(val)[:_MAX_PROMPT_CHARS]
         # image inputs: caller must pass a grid upload ref; validated upstream.
-        _set_path(spec, path, val)
+        # A var may target one slot (str) or several (list) — e.g. a seed fed to
+        # multiple sampling passes, set identically for reproducibility.
+        for p in (path if isinstance(path, list) else [path]):
+            _set_path(spec, p, val)
 
     return {
         "recipe_root": r.recipe_root,

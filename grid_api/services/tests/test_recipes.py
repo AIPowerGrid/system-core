@@ -126,6 +126,37 @@ def test_bad_slot_path_rejected():
         print("ok: bad slot path rejected (can't invent structure)")
 
 
+def test_dual_seed_list_path():
+    _clear()
+    recipes.register_recipe("0xseed", "dual", {
+        "_grid": {"vars": {"seed": ["a.inputs.noise_seed", "b.inputs.noise_seed"]}},
+        "a": {"inputs": {"noise_seed": 0}}, "b": {"inputs": {"noise_seed": 0}},
+    }, recipe_id=7)
+    s = recipes.resolve("0xseed", {"seed": 123})["spec"]
+    assert s["a"]["inputs"]["noise_seed"] == 123 and s["b"]["inputs"]["noise_seed"] == 123
+    print("ok: one seed -> multiple slots (list var path)")
+
+
+def test_import_traces_positive_negative():
+    from grid_api.services import recipe_import
+    # minimal: a conditioning node splitting positive<-2 negative<-1, two CLIPTextEncode
+    wf = {
+        "1": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+        "2": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+        "3": {"class_type": "SomeConditioning",
+              "inputs": {"positive": ["2", 0], "negative": ["1", 0]}},
+        "4": {"class_type": "KSampler", "inputs": {"seed": 0}},
+        "5": {"class_type": "LoadImage", "inputs": {"image": ""}},
+    }
+    recipe, notes = recipe_import.build_recipe(wf, "t", job_type="video")
+    v = recipe["_grid"]["vars"]
+    assert v["prompt"] == "2.inputs.text"          # traced positive
+    assert v["negative_prompt"] == "1.inputs.text"  # traced negative
+    assert v["seed"] == "4.inputs.seed" and v["image"] == "5.inputs.image"
+    assert recipe["_grid"]["jobType"] == "video" and not notes
+    print("ok: import traces positive/negative + detects seed/image")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
