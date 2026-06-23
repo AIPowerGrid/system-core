@@ -143,6 +143,33 @@ Two ways to actually fund the AIPG payout, pick by phase:
   liquidity) and funds the pool from purchases — "fiat→AIPG payroll" = usage-driven
   demand. This is Phase 2 in ECONOMICS.md (needs the LP seeded first).
 
+### 5b. Payout asset — pay workers in USDC (decided)
+
+Workers want **real money**. AIPG is too thin to sell today (~$7/day vol — a
+worker dumping rewards craters the price), so AIPG-only payouts are "cheap
+equity," not income. Decision: **pay the earned share in USDC, plus an optional
+AIPG bonus** (USDC = "you earned this"; AIPG = "you own a piece"). Den stays the
+asset-agnostic meter; only the payout asset(s) change at settlement.
+
+**Contract reality (verified):** the deployed `PaymentRouter` + `RewardPool` are
+**AIPG-only** — `s.aipgToken.transfer(worker, amount)` is hardcoded, pool holds
+AIPG. Paying USDC is therefore a **contract change, not a config flip**. Two paths:
+
+| Path | How | Trade-off |
+|---|---|---|
+| **A. Configurable payout token** (recommended) | Replace `aipgToken` with a `payoutToken` (or add a USDC pool facet); same den-keyed Merkle claim, in USDC | Trust-minimized, on-chain verifiable claims — the web3 version. Needs contract change + audit + diamond cut → bundle with #46. Mind decimals (USDC 6, AIPG 18). |
+| **B. Bot-driven USDC transfers** (interim pilot) | Settlement bot sends USDC ERC20 transfers off the same `aggregate_den_for_period()` roll-up | Ships in days, no contract risk. **Custodial** (treasury holds + pushes USDC) — less decentralized; a bootstrap, not the end state. |
+
+Recommendation: **B now** to delight workers immediately (small, treasury-funded,
+clearly bootstrap), **migrate to A** for the verifiable end state.
+
+**Funding honesty:** USDC out must come from USDC in (consumer revenue) or
+treasury. Pre-revenue, USDC payouts are **real dollars** out of pocket (burn),
+unlike AIPG emissions (cheap equity) — size to runway. Once Track B revenue flows,
+it's a clean passthrough: **consumer pays USDC → 85% straight to the worker in
+USDC**, no conversion, no oracle, no slippage. That steady state is exactly the
+"pass USDC into the pool, give it to them straight up" model.
+
 ---
 
 ## 6. Data model
@@ -217,5 +244,8 @@ Follow `settlement/GO_LIVE.md`. Money is an ops task away, not a build:
 1. Credit denomination: **micro-USD** / micro-AIPG.
 2. Worker split: **85 / 3 / 12 per ECONOMICS.md** / other (governance param).
 3. First payouts: **emission-funded bootstrap now**, revenue-funded after LP seed.
+3b. Payout asset: **USDC base + AIPG bonus** — interim via settlement-bot USDC
+    transfers (custodial), end state via a configurable `payoutToken` on-chain
+    claim (contract change, bundle with #46).
 4. AIPG top-up cap: **start low (e.g. $50/tx)** given pool depth; raise with liquidity.
 5. Settlement cadence: **daily (86400s, as deployed)**.
