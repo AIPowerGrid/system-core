@@ -13,7 +13,7 @@ from datetime import datetime
 import requests
 
 # Configuration
-API_URL = "https://api.aipowergrid.io/api/v2/workers"
+API_URL = "https://api.aipowergrid.io/v1/workers"
 POLL_INTERVAL = 30  # seconds between polls
 WORK_WEIGHT = 0.90
 UPTIME_WEIGHT = 0.10

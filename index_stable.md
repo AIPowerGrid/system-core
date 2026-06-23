@@ -186,19 +186,19 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 <div class="card">
 <h3>API Dashboard</h3>
 <p>Interactive API reference with Scalar UI</p>
-<a href="https://dashboard.aipowergrid.io/api-doc">dashboard.aipowergrid.io/api-doc</a>
+<a href="https://docs.aipowergrid.io">docs.aipowergrid.io</a>
 </div>
 
 <div class="card">
 <h3>Swagger / OpenAPI</h3>
 <p>Raw OpenAPI specification for integrations</p>
-<a href="https://api.aipowergrid.io/api/swagger.json">api.aipowergrid.io/api/swagger.json</a>
+<a href="https://docs.aipowergrid.io">docs.aipowergrid.io</a>
 </div>
 
 <div class="card">
 <h3>Legacy API Docs</h3>
 <p>Classic Swagger UI documentation</p>
-<a href="https://api.aipowergrid.io/api/docs">api.aipowergrid.io/api/docs</a>
+<a href="https://docs.aipowergrid.io">docs.aipowergrid.io</a>
 </div>
 
 <div class="card">

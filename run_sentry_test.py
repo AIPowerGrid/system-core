@@ -12,7 +12,7 @@ from datetime import datetime
 
 import requests
 
-API_URL = "https://api.aipowergrid.io/api/v2/workers"
+API_URL = "https://api.aipowergrid.io/v1/workers"
 WORK_WEIGHT = 0.90
 UPTIME_WEIGHT = 0.10
 TOTAL_PAYOUT = 5.0  # tokens per interval
