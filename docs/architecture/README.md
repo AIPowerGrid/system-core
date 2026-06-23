@@ -12,6 +12,8 @@ refactor the code against these, not the other way around.
 | [PARITY_MATRIX.md](PARITY_MATRIX.md) | Legacy AI-Horde vs new grid — what we kept, replaced, dropped on purpose, and the real gaps. |
 | [SAFETY_MODEL.md](SAFETY_MODEL.md) | Content-safety architecture: centralized now → decentralized (validator) future. Answers "do we give safety to validator nodes?" |
 | [RECIPE_DISPATCH.md](RECIPE_DISPATCH.md) | Media (image/video) dispatch: two surfaces (OpenAI `/v1` + ComfyUI Cloud API mirror) over one RecipeVault-governed core. Expands ADR-0003. |
+| [ECONOMICS.md](ECONOMICS.md) | The macro: treasury bootstrap, liquidity (the #1 unlock), stake/bond numbers, charge-model sketch, phasing. Reality-grounded to AIPG's actual market. |
+| [CREDITS_AND_SETTLEMENT.md](CREDITS_AND_SETTLEMENT.md) | The money *plumbing*: consumer payment → micro-USD credits → metered charge → worker den → on-chain payout on Base. Demand/supply planes, what's built vs the gaps, two pragmatic go-live tracks. |
 
 ## The spine (ADR-0001 — decided)
 
