@@ -10,25 +10,30 @@ The only difference from the Anthropic endpoint is the JSON envelope.
 import asyncio
 import json
 import logging
+import os
 import time
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import uuid4
 
+# DoS guard: cap total request size BEFORE sanitize-regex + tiktoken + Redis push, so a
+# multi-MB prompt can't amplify CPU/memory (sec audit M3). Generous but bounded.
+MAX_REQUEST_CHARS = int(os.getenv("MAX_REQUEST_CHARS", "200000"))   # ~50k tokens
+MAX_REQUEST_MESSAGES = int(os.getenv("MAX_REQUEST_MESSAGES", "500"))
+
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ..ratelimit import limiter
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import extract_api_key, hash_api_key
+from ..auth import extract_api_key
 
 from .. import format as fmt
-from ..database import new_session, processing_gens_table, users_table, waiting_prompts_table
+from ..database import new_session, processing_gens_table, waiting_prompts_table
 from ..models.openai import ChatCompletionRequest, ModelInfo, ModelListResponse
 from ..services import accounts as accounts_svc
-from ..services import job_queue, media, quota, token_stream
+from ..services import job_queue, media, quota, recipes, token_stream
 from ..services.sanitizer import sanitize_messages
 from .worker_ws import get_available_models
 
@@ -102,7 +107,15 @@ async def chat_completions(
 
 
 async def _detect_media_model(model: str) -> Optional[str]:
-    """Return 'image'/'video' if `model` is served by a media worker, else None."""
+    """Return 'image'/'video' if `model` is a media model, else None.
+
+    The recipe's jobType is AUTHORITATIVE for kind: a media worker may advertise the
+    same model under both image+video job-types, so the worker list can't tell us
+    which a model actually is (LTX-2.3 is video-only but shows in both). Fall back to
+    the worker-advertised job-type only for non-recipe (legacy) models."""
+    r = recipes.get_recipe(model)
+    if r is not None and r.job_type in ("image", "video"):
+        return r.job_type
     if model in await get_available_models(job_type="image"):
         return "image"
     if model in await get_available_models(job_type="video"):
@@ -121,7 +134,21 @@ def _last_user_prompt(messages: list) -> str:
     return " ".join(_content_to_text(m.content) for m in messages).strip()
 
 
-async def _chat_media(request: ChatCompletionRequest, kind: str):
+def _last_user_image(messages: list) -> Optional[str]:
+    """Most recent INLINE (data: URI) image in a user turn — the img2img/img2video
+    source frame. http(s) URLs are ignored on purpose (SSRF: inline base64 only)."""
+    for m in reversed(messages):
+        if m.role != "user" or not isinstance(m.content, list):
+            continue
+        for part in m.content:
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                url = (part.get("image_url") or {}).get("url", "")
+                if isinstance(url, str) and url.startswith("data:"):
+                    return url
+    return None
+
+
+async def _chat_media(request: ChatCompletionRequest, kind: str, account_id=None):
     """Image/video generation abstracted behind /v1/chat/completions.
 
     When the requested model is a media model, the latest user turn is the
@@ -132,8 +159,19 @@ async def _chat_media(request: ChatCompletionRequest, kind: str):
     """
     model = request.model
     prompt = _last_user_prompt(request.messages)
-    if not prompt:
-        raise HTTPException(status_code=400, detail="No prompt found in messages.")
+
+    # img2img / img2video from a pasted image in the turn. Chat has no `size`, so a
+    # source frame always auto-matches the output dims to it. An image-only turn
+    # (no text) is valid for img2video.
+    source_image = _last_user_image(request.messages)
+    if not prompt and not source_image:
+        raise HTTPException(status_code=400, detail="No prompt or image found in messages.")
+
+    recipe_inputs: dict = {}
+    source_image_url = None
+    if source_image:
+        recipe_inputs, source_image_url = await media.prepare_source_image(
+            model, source_image, size_was_set=False)
 
     steps, cfg_scale, sampler = media.diffusion_params(model, {})
     if kind == "video":
@@ -143,14 +181,20 @@ async def _chat_media(request: ChatCompletionRequest, kind: str):
             "frames": 4 * 24, "fps": 24, "steps": steps, "sampler_name": sampler,
             "cfg_scale": cfg_scale, "ext": "mp4",
         }
-        outputs = await media.submit_and_wait(model, "video", payload, media.VIDEO_TIMEOUT)
+        timeout = media.VIDEO_TIMEOUT
     else:
         width, height = 1024, 1024
         payload = {
             "prompt": prompt, "n": 1, "width": width, "height": height,
             "steps": steps, "sampler_name": sampler, "cfg_scale": cfg_scale, "ext": "webp",
         }
-        outputs = await media.submit_and_wait(model, "image", payload, media.IMAGE_TIMEOUT)
+        timeout = media.IMAGE_TIMEOUT
+    if recipe_inputs:
+        payload["recipe_inputs"] = recipe_inputs
+    if source_image_url:
+        payload["source_image_url"] = source_image_url
+    outputs, _meta = await media.submit_and_wait(model, kind, payload, timeout,
+                                          account_id=account_id, concurrency_limit=media.MEDIA_CONCURRENCY)
 
     urls = [o["url"] for o in outputs if o.get("url")]
     if kind == "video":
@@ -190,9 +234,20 @@ async def _chat_media(request: ChatCompletionRequest, kind: str):
     }
 
 
+def _assert_request_size(messages: list) -> None:
+    """Reject oversized requests before any CPU-heavy processing (sanitize/tokenize)."""
+    if len(messages) > MAX_REQUEST_MESSAGES:
+        raise HTTPException(status_code=413, detail=f"too many messages (max {MAX_REQUEST_MESSAGES})")
+    total = sum(len(_content_to_text(m.content)) for m in messages)
+    if total > MAX_REQUEST_CHARS:
+        raise HTTPException(status_code=413,
+                            detail=f"request too large ({total} chars; max {MAX_REQUEST_CHARS})")
+
+
 async def _handle_chat_completions(request: ChatCompletionRequest, apikey: str):
     # Auth — v2 account keys first, legacy Haidra keys as fallback.
     user = await accounts_svc.authenticate(apikey)
+    _assert_request_size(request.messages)
 
     # Media abstraction: if the requested model is an image/video model, run a
     # media job and return the asset in the assistant message. Keeps a single
@@ -201,7 +256,7 @@ async def _handle_chat_completions(request: ChatCompletionRequest, apikey: str):
     media_kind = await _detect_media_model(request.model)
     if media_kind:
         await quota.check_and_consume(dict(user))
-        return await _chat_media(request, media_kind)
+        return await _chat_media(request, media_kind, account_id=user["id"])
 
     # Check for available text workers serving the OpenAI chat-completions API.
     available = await get_available_models(job_type="text", api_format="openai-chat")
@@ -253,7 +308,7 @@ async def _handle_chat_completions(request: ChatCompletionRequest, apikey: str):
         "api_format": "openai-chat",
         # Legacy/fallback fields (also read by the den/context caps).
         "prompt": prompt,
-        "max_length": request.max_tokens or 4096,
+        "max_length": request.max_tokens or 32768,
         "temperature": request.temperature,
         "top_p": request.top_p,
     }
@@ -280,7 +335,7 @@ async def _handle_chat_completions(request: ChatCompletionRequest, apikey: str):
                 worker_blacklist=False,
                 active=True,
                 faulted=False,
-                max_length=request.max_tokens or 4096,
+                max_length=request.max_tokens or 32768,
                 max_context_length=2048,
                 expiry=datetime.utcnow() + timedelta(minutes=5),
                 created=datetime.utcnow(),
@@ -346,8 +401,14 @@ async def _stream_openai(job_id: str, model: str, completion_id: str):
             finish = data.get("finish_reason") or "stop"
             yield f"data: {json.dumps(fmt.openai_chunk_raw({}, model, completion_id, finish_reason=finish))}\n\n"
             usage = data.get("usage")
-            if usage:
-                yield f"data: {json.dumps(fmt.openai_usage_chunk(model, completion_id, usage))}\n\n"
+            grid_meta = data.get("grid")
+            if usage or grid_meta:
+                usage_chunk = fmt.openai_usage_chunk(model, completion_id, usage or {})
+                # Additive provenance on the final chunk (worker, gen_time, ttft,
+                # tokens_per_s) — standard clients ignore the extra `grid` key.
+                if grid_meta:
+                    usage_chunk["grid"] = grid_meta
+                yield f"data: {json.dumps(usage_chunk)}\n\n"
             break
 
         delta = data.get("delta")
@@ -378,6 +439,7 @@ async def _collect_response(job_id: str, model: str) -> dict:
     tool_calls = None
     usage = None
     finish_reason = "stop"
+    grid_meta = None
 
     async for data in token_stream.subscribe_tokens(job_id):
         if data.get("text") == token_stream.DONE_SENTINEL:
@@ -391,6 +453,7 @@ async def _collect_response(job_id: str, model: str) -> dict:
             tool_calls = data.get("tool_calls") or tool_calls
             usage = data.get("usage") or usage
             finish_reason = data.get("finish_reason") or finish_reason
+            grid_meta = data.get("grid") or grid_meta
             break
 
         delta = data.get("delta")
@@ -406,7 +469,7 @@ async def _collect_response(job_id: str, model: str) -> dict:
 
     prompt_tokens = (usage or {}).get("prompt_tokens", 0)
     completion_tokens = (usage or {}).get("completion_tokens", 0)
-    return fmt.openai_response(
+    resp = fmt.openai_response(
         content,
         model,
         prompt_tokens=prompt_tokens,
@@ -415,6 +478,11 @@ async def _collect_response(job_id: str, model: str) -> dict:
         tool_calls=tool_calls,
         finish_reason=finish_reason,
     )
+    # Additive provenance sibling (worker, gen_time, ttft, tokens_per_s). Standard
+    # OpenAI clients ignore unknown top-level fields; UIs that want it read `grid`.
+    if grid_meta:
+        resp["grid"] = grid_meta
+    return resp
 
 
 @router.get("/v1/models")
